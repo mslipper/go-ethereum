@@ -5,8 +5,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/pkg/errors"
-	"sync"
+		"sync"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"math"
@@ -17,7 +16,7 @@ const (
 	StoreKey = "StoreKey"
 	ValueKey = "Data"
 	BatchSize = 25
-	BatchConcurrency = 5
+	BatchConcurrency = 10
 )
 
 type DynamoDatabase struct {
@@ -104,23 +103,22 @@ func (d *DynamoDatabase) Close() {
 
 func (d *DynamoDatabase) NewBatch() Batch {
 	return &DynamoBatch{
-		writes: make(map[string][]byte),
 		svc: d.svc,
 	}
 }
 
 type DynamoBatch struct {
-	writes map[string][]byte
+	writes []kv
 	size int
 	svc *dynamodb.DynamoDB
 }
 
 type queue struct {
-	items []string
+	items []kv
 	mtx sync.Mutex
 }
 
-func (q *queue) PopItems(n int) []string {
+func (q *queue) PopItems(n int) []kv {
 	q.mtx.Lock()
 	defer q.mtx.Unlock()
 
@@ -128,7 +126,7 @@ func (q *queue) PopItems(n int) []string {
 		return nil
 	}
 
-	var out []string
+	var out []kv
 	for len(q.items) > 0 && len(out) < n {
 		idx := len(q.items) - 1
 		item := q.items[idx]
@@ -146,24 +144,29 @@ func (q *queue) Size() int {
 }
 
 func (b *DynamoBatch) Put(key []byte, value []byte) error {
-	log.Debug("Staging batch write.", "key", hexutil.Encode(key))
-	k := string(common.CopyBytes(key))
-	val := common.CopyBytes(value)
-	b.writes[k] = val
+	log.Trace("Staging batch write.", "key", hexutil.Encode(key))
+	k := common.CopyBytes(key)
+	v := common.CopyBytes(value)
+
+	kv := kv{
+		k: k,
+		v: v,
+	}
+
+	b.writes = append(b.writes, kv)
 	b.size += len(value)
 	return nil
 }
 
 func (b *DynamoBatch) Delete(key []byte) error {
 	log.Debug("Staging batch delete.", "key", hexutil.Encode(key))
-	k := string(key)
-	val, ok := b.writes[k]
-	if !ok {
-		return errors.New("key not found")
+	k := common.CopyBytes(key)
+	kv := kv {
+		k: k,
+		del: true,
 	}
-
-	delete(b.writes, string(key))
-	b.size -= len(val)
+	b.writes = append(b.writes, kv)
+	b.size += 1
 	return nil
 }
 
@@ -179,16 +182,9 @@ func (b *DynamoBatch) Write() error {
 		return nil
 	}
 
-	keys := make([]string, len(b.writes))
-	i := 0
-	for k := range b.writes {
-		keys[i] = k
-		i++
-	}
-
 	var wg sync.WaitGroup
 	q := &queue{
-		items: keys,
+		items: b.writes[:],
 	}
 	size := q.Size()
 
@@ -211,24 +207,32 @@ func (b *DynamoBatch) Write() error {
 }
 
 func (b *DynamoBatch) executeWrite(queue *queue, wg *sync.WaitGroup) {
-	keys := queue.PopItems(BatchSize)
-	for keys != nil {
+	kvs := queue.PopItems(BatchSize)
+	for kvs != nil {
 		var reqs []*dynamodb.WriteRequest
 
-		for _, key := range keys {
-			keyB := []byte(key)
-			value := b.writes[key]
-			item := keyAttrs(keyB)
-			item[ValueKey] = &dynamodb.AttributeValue{
-				B: value,
-			}
-			reqs = append(reqs, &dynamodb.WriteRequest{
-				PutRequest: &dynamodb.PutRequest{
-					Item: item,
-				},
-			})
+		for _, kv := range kvs {
+			k := kv.k
+			v := kv.v
+			del := kv.del
+			req := &dynamodb.WriteRequest{}
+			item := keyAttrs(k)
 
-			log.Trace("Preparing batch write.", "key", hexutil.Encode(keyB))
+			if del {
+				req.DeleteRequest = &dynamodb.DeleteRequest{
+					Key: item,
+				}
+			} else {
+				item[ValueKey] = &dynamodb.AttributeValue{
+					B: v,
+				}
+				req.PutRequest = &dynamodb.PutRequest{
+					Item: item,
+				}
+			}
+
+			reqs = append(reqs, req)
+			log.Trace("Preparing batch write.", "kv", hexutil.Encode(k))
 		}
 
 		reqItems := make(map[string][]*dynamodb.WriteRequest)
@@ -243,14 +247,14 @@ func (b *DynamoBatch) executeWrite(queue *queue, wg *sync.WaitGroup) {
 		}
 
 		log.Trace("Wrote batch.", "size", BatchSize)
-		keys = queue.PopItems(BatchSize)
+		kvs = queue.PopItems(BatchSize)
 	}
 
 	wg.Done()
 }
 
 func (b *DynamoBatch) Reset() {
-	b.writes = make(map[string][]byte)
+	b.writes = make([]kv, 0)
 	b.size = 0
 }
 
