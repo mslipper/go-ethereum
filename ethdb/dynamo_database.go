@@ -190,6 +190,7 @@ func (b *DynamoBatch) Write() error {
 	} else {
 		executors = int(math.Ceil(float64(size) / BatchConcurrency))
 	}
+	log.Debug("Waiting on batch group.", "wg", executors)
 	wg.Add(executors)
 
 	for i := 0; i < executors; i++ {
