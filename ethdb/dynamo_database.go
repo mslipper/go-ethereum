@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"math"
 	"github.com/pkg/errors"
+	"time"
 )
 
 const (
@@ -78,10 +79,14 @@ func (d *DynamoDatabase) Get(key []byte) ([]byte, error) {
 		TableName: aws.String(TableName),
 		ConsistentRead: aws.Bool(true),
 	}
+	start := time.Now().UnixNano()
 	res, err := d.svc.GetItem(input)
 	if err != nil {
 		return nil, err
 	}
+	end := time.Now().UnixNano()
+
+	log.Debug("Read time", "ms", (float64(end) - float64(start)) / 1000000)
 
 	if res.Item == nil {
 		return nil, nil
