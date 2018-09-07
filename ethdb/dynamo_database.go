@@ -5,19 +5,18 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/ethereum/go-ethereum/common"
-		"sync"
+	"sync"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"math"
 	"github.com/pkg/errors"
-	"time"
 )
 
 const (
-	TableName = "Geth-KV"
-	StoreKey = "StoreKey"
-	ValueKey = "Data"
-	BatchSize = 25
+	TableName        = "Geth-KV"
+	StoreKey         = "StoreKey"
+	ValueKey         = "Data"
+	BatchSize        = 25
 	BatchConcurrency = 10
 )
 
@@ -75,18 +74,14 @@ func (d *DynamoDatabase) Delete(key []byte) error {
 func (d *DynamoDatabase) Get(key []byte) ([]byte, error) {
 	log.Trace("Getting key.", "key", hexutil.Encode(key))
 	input := &dynamodb.GetItemInput{
-		Key:       keyAttrs(key),
-		TableName: aws.String(TableName),
+		Key:            keyAttrs(key),
+		TableName:      aws.String(TableName),
 		ConsistentRead: aws.Bool(true),
 	}
-	start := time.Now().UnixNano()
 	res, err := d.svc.GetItem(input)
 	if err != nil {
 		return nil, err
 	}
-	end := time.Now().UnixNano()
-
-	log.Debug("Read time", "ms", (float64(end) - float64(start)) / 1000000)
 
 	if res.Item == nil {
 		return nil, nil
@@ -115,13 +110,13 @@ func (d *DynamoDatabase) NewBatch() Batch {
 
 type DynamoBatch struct {
 	writes []kv
-	size int
-	svc *dynamodb.DynamoDB
+	size   int
+	svc    *dynamodb.DynamoDB
 }
 
 type queue struct {
 	items []kv
-	mtx sync.Mutex
+	mtx   sync.Mutex
 }
 
 func (q *queue) PopItems(n int) []kv {
@@ -159,7 +154,6 @@ func (b *DynamoBatch) Put(key []byte, value []byte) error {
 		v = common.CopyBytes(value)
 	}
 
-
 	kv := kv{
 		k: k,
 		v: v,
@@ -173,8 +167,8 @@ func (b *DynamoBatch) Put(key []byte, value []byte) error {
 func (b *DynamoBatch) Delete(key []byte) error {
 	log.Info("Staging batch delete.", "key", hexutil.Encode(key))
 	k := common.CopyBytes(key)
-	kv := kv {
-		k: k,
+	kv := kv{
+		k:   k,
 		del: true,
 	}
 	b.writes = append(b.writes, kv)
@@ -200,7 +194,7 @@ func (b *DynamoBatch) Write() error {
 	size := q.Size()
 
 	var executors int
-	if size > BatchConcurrency * BatchSize {
+	if size > BatchConcurrency*BatchSize {
 		executors = BatchConcurrency
 	} else {
 		executors = int(math.Ceil(float64(size) / BatchConcurrency))
