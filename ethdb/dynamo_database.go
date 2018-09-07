@@ -147,7 +147,13 @@ func (q *queue) Size() int {
 func (b *DynamoBatch) Put(key []byte, value []byte) error {
 	log.Trace("Staging batch write.", "key", hexutil.Encode(key))
 	k := common.CopyBytes(key)
-	v := common.CopyBytes(value)
+	var v []byte
+	if len(value) == 0 {
+		v = []byte{0x00}
+	} else {
+		v = common.CopyBytes(value)
+	}
+
 
 	kv := kv{
 		k: k,
@@ -208,6 +214,7 @@ func (b *DynamoBatch) Write() error {
 
 func (b *DynamoBatch) executeWrite(queue *queue, wg *sync.WaitGroup) {
 	kvs := queue.PopItems(BatchSize)
+	defer wg.Done()
 	for kvs != nil {
 		var reqs []*dynamodb.WriteRequest
 
@@ -249,8 +256,6 @@ func (b *DynamoBatch) executeWrite(queue *queue, wg *sync.WaitGroup) {
 		log.Trace("Wrote batch.", "size", BatchSize)
 		kvs = queue.PopItems(BatchSize)
 	}
-
-	wg.Done()
 }
 
 func (b *DynamoBatch) Reset() {
