@@ -126,9 +126,9 @@ func (q *queue) PopItems(n int) []kv {
 
 	var out []kv
 	for len(q.items) > 0 && len(out) < n {
-		idx := len(q.items) - 1
+		idx := 0
 		item := q.items[idx]
-		q.items = q.items[:idx]
+		q.items = q.items[1:]
 		out = append(out, item)
 	}
 
@@ -182,11 +182,11 @@ func (d *DynamoDatabase) startWriteQueue() {
 		start := time.Now()
 		var uniqueKvs []kv
 		usedKeys := make(map[string]bool)
-		for i := len(kvs) - 1; i >= 0; i-- {
+		for i := 0; i < len(kvs); i++ {
 			kv := kvs[i]
 			keyStr := string(kv.k)
 			if usedKeys[keyStr] {
-				continue
+				break
 			}
 
 			usedKeys[keyStr] = true
