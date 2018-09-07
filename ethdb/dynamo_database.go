@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"math"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -159,7 +160,7 @@ func (b *DynamoBatch) Put(key []byte, value []byte) error {
 }
 
 func (b *DynamoBatch) Delete(key []byte) error {
-	log.Debug("Staging batch delete.", "key", hexutil.Encode(key))
+	log.Info("Staging batch delete.", "key", hexutil.Encode(key))
 	k := common.CopyBytes(key)
 	kv := kv {
 		k: k,
@@ -178,9 +179,7 @@ func (b *DynamoBatch) Write() error {
 	writeLen := len(b.writes)
 
 	if writeLen == 0 {
-		log.Debug("Writing batch length of zero, bailing.")
-		panic("oh no")
-		return nil
+		return errors.New("batch length is zero")
 	}
 
 	var wg sync.WaitGroup
