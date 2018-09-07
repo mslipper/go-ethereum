@@ -218,6 +218,8 @@ func (b *DynamoBatch) executeWrite(queue *queue, wg *sync.WaitGroup) {
 					Item: item,
 				},
 			})
+
+			log.Trace("Preparing batch write.", "key", hexutil.Encode(keyB))
 		}
 
 		reqItems := make(map[string][]*dynamodb.WriteRequest)
@@ -231,6 +233,7 @@ func (b *DynamoBatch) executeWrite(queue *queue, wg *sync.WaitGroup) {
 			panic(err)
 		}
 
+		log.Trace("Wrote batch.", "size", BatchSize)
 		keys = queue.PopItems(BatchSize)
 	}
 
