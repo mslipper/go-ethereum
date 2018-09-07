@@ -41,7 +41,7 @@ func NewDynamoDatabase() (Database, error) {
 }
 
 func (d *DynamoDatabase) Put(key []byte, value []byte) error {
-	log.Debug("Writing key.", "key", hexutil.Encode(key), "valuelen", len(value))
+	log.Trace("Writing key.", "key", hexutil.Encode(key), "valuelen", len(value))
 
 	if len(value) == 0 {
 		value = []byte{0x00}
@@ -146,6 +146,7 @@ func (q *queue) Size() int {
 }
 
 func (b *DynamoBatch) Put(key []byte, value []byte) error {
+	log.Debug("Staging batch write.", "key", hexutil.Encode(key))
 	k := string(common.CopyBytes(key))
 	val := common.CopyBytes(value)
 	b.writes[k] = val
@@ -154,6 +155,7 @@ func (b *DynamoBatch) Put(key []byte, value []byte) error {
 }
 
 func (b *DynamoBatch) Delete(key []byte) error {
+	log.Debug("Staging batch delete.", "key", hexutil.Encode(key))
 	k := string(key)
 	val, ok := b.writes[k]
 	if !ok {
@@ -170,6 +172,13 @@ func (b *DynamoBatch) ValueSize() int {
 }
 
 func (b *DynamoBatch) Write() error {
+	writeLen := len(b.writes)
+
+	if writeLen == 0 {
+		log.Debug("Writing batch length of zero, bailing.")
+		return nil
+	}
+
 	keys := make([]string, len(b.writes))
 	i := 0
 	for k := range b.writes {
@@ -181,19 +190,16 @@ func (b *DynamoBatch) Write() error {
 	q := &queue{
 		items: keys,
 	}
-
 	size := q.Size()
-	log.Debug("Queue size:", "size", size)
 
 	var executors int
 	if size > BatchConcurrency * BatchSize {
 		executors = BatchConcurrency
 	} else {
-		log.Debug("Less than min concurrency size.", "size", size)
 		executors = int(math.Ceil(float64(size) / BatchConcurrency))
 	}
-	log.Debug("Waiting on batch group.", "wg", executors)
 	wg.Add(executors)
+	log.Debug("Waiting on batch executors.", "count", executors)
 
 	for i := 0; i < executors; i++ {
 		go b.executeWrite(q, &wg)
