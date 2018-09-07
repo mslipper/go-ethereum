@@ -174,7 +174,7 @@ func (d *DynamoDatabase) startWriteQueue() {
 		kvs := d.writeQueue.PopItems(BatchSize)
 
 		if kvs == nil {
-			log.Info("Nothing to write, sleeping")
+			log.Trace("Nothing to write, sleeping")
 			time.Sleep(1 * time.Second)
 			continue
 		}
@@ -229,7 +229,7 @@ func (d *DynamoDatabase) startWriteQueue() {
 			panic(err)
 		}
 
-		log.Info("Wrote batch", "size", len(reqs), "duration", time.Since(start), "remaining", d.writeQueue.Size())
+		log.Trace("Wrote batch", "size", len(reqs), "duration", time.Since(start), "remaining", d.writeQueue.Size())
 		kvs = d.writeQueue.PopItems(BatchSize)
 	}
 }
