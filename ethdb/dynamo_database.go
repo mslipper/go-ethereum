@@ -183,11 +183,13 @@ func (b *DynamoBatch) Write() error {
 	}
 
 	size := q.Size()
+	log.Debug("Queue size:", "size", size)
 
 	var executors int
 	if size > BatchConcurrency * BatchSize {
 		executors = BatchConcurrency
 	} else {
+		log.Debug("Less than min concurrency size.", "size", size)
 		executors = int(math.Ceil(float64(size) / BatchConcurrency))
 	}
 	log.Debug("Waiting on batch group.", "wg", executors)
