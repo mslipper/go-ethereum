@@ -8,115 +8,112 @@ import (
 	"sync"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"math"
 	"github.com/pkg/errors"
-)
+	"time"
+	"github.com/allegro/bigcache"
+	)
 
 const (
 	TableName        = "Geth-KV"
 	StoreKey         = "StoreKey"
 	ValueKey         = "Data"
 	BatchSize        = 25
-	BatchConcurrency = 10
 )
 
-type DynamoDatabase struct {
-	svc *dynamodb.DynamoDB
+type dynamoCache struct {
+	size        uint
+	cacheHits   uint
+	cacheMisses uint
+	cache       *bigcache.BigCache
 }
 
-func NewDynamoDatabase() (Database, error) {
-	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String("us-east-2"),
-	})
+func NewDynamoCache() *dynamoCache {
+	config := bigcache.Config{
+		Shards:           1024,
+		LifeWindow:       5 * time.Minute,
+		HardMaxCacheSize: 2048,
+	}
 
+	cache, err := bigcache.NewBigCache(config)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 
-	svc := dynamodb.New(sess)
+	res := &dynamoCache{
+		size:  2000,
+		cache: cache,
+	}
 
-	return &DynamoDatabase{
-		svc: svc,
-	}, nil
+	go func() {
+		tick := time.NewTicker(5 * time.Second)
+
+		for {
+			select {
+			case <-tick.C:
+				log.Info(
+					"Cache metrics",
+					"hits",
+					res.cacheHits,
+					"misses",
+					res.cacheMisses,
+					"rate",
+					(float64(res.cacheHits)/float64(res.cacheMisses+res.cacheHits))*100,
+					"size",
+					res.cache.Len(),
+				)
+			}
+		}
+	}()
+
+	return res
 }
 
-func (d *DynamoDatabase) Put(key []byte, value []byte) error {
-	log.Trace("Writing key.", "key", hexutil.Encode(key), "valuelen", len(value))
-
-	if len(value) == 0 {
-		value = []byte{0x00}
-	}
-
-	item := keyAttrs(key)
-	item[ValueKey] = &dynamodb.AttributeValue{
-		B: value,
-	}
-
-	input := &dynamodb.PutItemInput{
-		Item:      item,
-		TableName: aws.String(TableName),
-	}
-
-	_, err := d.svc.PutItem(input)
-	return err
-}
-
-func (d *DynamoDatabase) Delete(key []byte) error {
-	log.Trace("Deleting key.", "key", hexutil.Encode(key))
-	input := &dynamodb.DeleteItemInput{
-		Key:       keyAttrs(key),
-		TableName: aws.String(TableName),
-	}
-	_, err := d.svc.DeleteItem(input)
-	return err
-}
-
-func (d *DynamoDatabase) Get(key []byte) ([]byte, error) {
-	log.Trace("Getting key.", "key", hexutil.Encode(key))
-	input := &dynamodb.GetItemInput{
-		Key:            keyAttrs(key),
-		TableName:      aws.String(TableName),
-		ConsistentRead: aws.Bool(true),
-	}
-	res, err := d.svc.GetItem(input)
+func (c *dynamoCache) Set(key []byte, value []byte) {
+	err := c.cache.Set(string(key), value)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
-
-	if res.Item == nil {
-		return nil, nil
-	}
-
-	return res.Item[ValueKey].B, nil
 }
 
-func (d *DynamoDatabase) Has(key []byte) (bool, error) {
-	res, err := d.Get(key)
+func (c *dynamoCache) Get(key []byte) []byte {
+	res, err := c.cache.Get(string(key))
 	if err != nil {
-		return false, err
+		_, ok := err.(*bigcache.EntryNotFoundError)
+		if !ok {
+			panic(err)
+		}
+
+		c.cacheMisses++
+		return nil
 	}
-
-	return res != nil, nil
+	c.cacheHits++
+	return res
 }
 
-func (d *DynamoDatabase) Close() {
-}
-
-func (d *DynamoDatabase) NewBatch() Batch {
-	return &DynamoBatch{
-		svc: d.svc,
+func (c *dynamoCache) Delete(key []byte) {
+	err := c.cache.Delete(string(key))
+	if err != nil {
+		_, ok := err.(*bigcache.EntryNotFoundError)
+		if !ok {
+			panic(err)
+		}
 	}
-}
-
-type DynamoBatch struct {
-	writes []kv
-	size   int
-	svc    *dynamodb.DynamoDB
 }
 
 type queue struct {
 	items []kv
 	mtx   sync.Mutex
+}
+
+func (q *queue) PushItems(items []kv) {
+	q.mtx.Lock()
+	defer q.mtx.Unlock()
+
+	if len(items) == 0 {
+		return
+	}
+
+	q.items = append(q.items, items...)
 }
 
 func (q *queue) PopItems(n int) []kv {
@@ -142,6 +139,189 @@ func (q *queue) Size() int {
 	q.mtx.Lock()
 	defer q.mtx.Unlock()
 	return len(q.items)
+}
+
+type DynamoDatabase struct {
+	svc        *dynamodb.DynamoDB
+	writeQueue *queue
+	cache      *dynamoCache
+}
+
+func NewDynamoDatabase() (Database, error) {
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String("us-east-2"),
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	svc := dynamodb.New(sess)
+
+	res := &DynamoDatabase{
+		svc:        svc,
+		cache:      NewDynamoCache(),
+		writeQueue: &queue{},
+	}
+
+	go res.startWriteQueue()
+
+	return res, nil
+}
+
+func (d *DynamoDatabase) startWriteQueue() {
+	for {
+		kvs := d.writeQueue.PopItems(BatchSize)
+
+		if kvs == nil {
+			log.Info("Nothing to write, sleeping")
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		start := time.Now()
+		var uniqueKvs []kv
+		usedKeys := make(map[string]bool)
+		for i := len(kvs) - 1; i >= 0; i-- {
+			kv := kvs[i]
+			keyStr := string(kv.k)
+			if usedKeys[keyStr] {
+				continue
+			}
+
+			usedKeys[keyStr] = true
+			uniqueKvs = append(uniqueKvs, kv)
+		}
+
+		var reqs []*dynamodb.WriteRequest
+		for _, kv := range uniqueKvs {
+			k := kv.k
+			v := kv.v
+			del := kv.del
+			req := &dynamodb.WriteRequest{}
+			item := keyAttrs(k)
+
+			if del {
+				req.DeleteRequest = &dynamodb.DeleteRequest{
+					Key: item,
+				}
+			} else {
+				item[ValueKey] = &dynamodb.AttributeValue{
+					B: v,
+				}
+				req.PutRequest = &dynamodb.PutRequest{
+					Item: item,
+				}
+			}
+
+			reqs = append(reqs, req)
+			log.Trace("Preparing batch write.", "kv", hexutil.Encode(k))
+		}
+
+		reqItems := make(map[string][]*dynamodb.WriteRequest)
+		reqItems[TableName] = reqs
+
+		_, err := d.svc.BatchWriteItem(&dynamodb.BatchWriteItemInput{
+			RequestItems: reqItems,
+		})
+
+		if err != nil {
+			panic(err)
+		}
+
+		log.Info("Wrote batch", "size", len(reqs), "duration", time.Since(start), "remaining", d.writeQueue.Size())
+		kvs = d.writeQueue.PopItems(BatchSize)
+	}
+}
+
+func (d *DynamoDatabase) Put(key []byte, value []byte) error {
+	log.Trace("Writing key.", "key", hexutil.Encode(key), "valuelen", len(value))
+
+	if len(value) == 0 {
+		value = []byte{0x00}
+	}
+
+	item := kv{
+		k: key,
+		v: value,
+	}
+
+	d.enqueue([]kv{item})
+	return nil
+}
+
+func (d *DynamoDatabase) Delete(key []byte) error {
+	log.Trace("Deleting key.", "key", hexutil.Encode(key))
+	input := &dynamodb.DeleteItemInput{
+		Key:       keyAttrs(key),
+		TableName: aws.String(TableName),
+	}
+	_, err := d.svc.DeleteItem(input)
+	d.cache.Delete(key)
+	return err
+}
+
+func (d *DynamoDatabase) Get(key []byte) ([]byte, error) {
+	log.Trace("Getting key.", "key", hexutil.Encode(key))
+	cached := d.cache.Get(key)
+	if cached != nil {
+		return cached, nil
+	}
+
+	input := &dynamodb.GetItemInput{
+		Key:            keyAttrs(key),
+		TableName:      aws.String(TableName),
+		ConsistentRead: aws.Bool(true),
+	}
+
+	res, err := d.svc.GetItem(input)
+	if err != nil {
+		return nil, err
+	}
+
+	if res.Item == nil {
+		return nil, nil
+	}
+
+	val := res.Item[ValueKey].B
+	d.cache.Set(key, val)
+	return val, nil
+}
+
+func (d *DynamoDatabase) Has(key []byte) (bool, error) {
+	res, err := d.Get(key)
+	if err != nil {
+		return false, err
+	}
+
+	return res != nil, nil
+}
+
+func (d *DynamoDatabase) Close() {
+}
+
+func (d *DynamoDatabase) enqueue(items []kv) {
+	for _, item := range items {
+		if item.del {
+			d.cache.Delete(item.k)
+		} else {
+			d.cache.Set(item.k, item.v)
+		}
+	}
+
+	d.writeQueue.PushItems(items)
+}
+
+func (d *DynamoDatabase) NewBatch() Batch {
+	return &DynamoBatch{
+		db: d,
+	}
+}
+
+type DynamoBatch struct {
+	writes []kv
+	size   int
+	db     *DynamoDatabase
 }
 
 func (b *DynamoBatch) Put(key []byte, value []byte) error {
@@ -187,74 +367,8 @@ func (b *DynamoBatch) Write() error {
 		return errors.New("batch length is zero")
 	}
 
-	var wg sync.WaitGroup
-	q := &queue{
-		items: b.writes[:],
-	}
-	size := q.Size()
-
-	var executors int
-	if size > BatchConcurrency*BatchSize {
-		executors = BatchConcurrency
-	} else {
-		executors = int(math.Ceil(float64(size) / BatchConcurrency))
-	}
-	wg.Add(executors)
-	log.Debug("Waiting on batch executors.", "count", executors)
-
-	for i := 0; i < executors; i++ {
-		go b.executeWrite(q, &wg)
-	}
-
-	wg.Wait()
-	log.Info("Wrote batch.", "size", size)
+	b.db.enqueue(b.writes)
 	return nil
-}
-
-func (b *DynamoBatch) executeWrite(queue *queue, wg *sync.WaitGroup) {
-	kvs := queue.PopItems(BatchSize)
-	defer wg.Done()
-	for kvs != nil {
-		var reqs []*dynamodb.WriteRequest
-
-		for _, kv := range kvs {
-			k := kv.k
-			v := kv.v
-			del := kv.del
-			req := &dynamodb.WriteRequest{}
-			item := keyAttrs(k)
-
-			if del {
-				req.DeleteRequest = &dynamodb.DeleteRequest{
-					Key: item,
-				}
-			} else {
-				item[ValueKey] = &dynamodb.AttributeValue{
-					B: v,
-				}
-				req.PutRequest = &dynamodb.PutRequest{
-					Item: item,
-				}
-			}
-
-			reqs = append(reqs, req)
-			log.Trace("Preparing batch write.", "kv", hexutil.Encode(k))
-		}
-
-		reqItems := make(map[string][]*dynamodb.WriteRequest)
-		reqItems[TableName] = reqs
-
-		_, err := b.svc.BatchWriteItem(&dynamodb.BatchWriteItemInput{
-			RequestItems: reqItems,
-		})
-
-		if err != nil {
-			panic(err)
-		}
-
-		log.Trace("Wrote batch.", "size", BatchSize)
-		kvs = queue.PopItems(BatchSize)
-	}
 }
 
 func (b *DynamoBatch) Reset() {
