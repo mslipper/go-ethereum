@@ -726,7 +726,7 @@ func (db *Database) uncache(hash common.Hash) {
 	db.nodesSize -= common.StorageSize(common.HashLength + int(node.size))
 }
 
-// Size returns the current storage size of the memory cache in front of the
+// MaxSize returns the current storage size of the memory cache in front of the
 // persistent database layer.
 func (db *Database) Size() (common.StorageSize, common.StorageSize) {
 	db.lock.RLock()
