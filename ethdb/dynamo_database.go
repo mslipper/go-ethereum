@@ -179,6 +179,7 @@ func (b *DynamoBatch) Write() error {
 
 	if writeLen == 0 {
 		log.Debug("Writing batch length of zero, bailing.")
+		panic("oh no")
 		return nil
 	}
 
