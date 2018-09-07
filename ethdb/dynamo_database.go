@@ -178,7 +178,6 @@ func (b *DynamoBatch) Write() error {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(BatchConcurrency)
 	q := &queue{
 		items: keys,
 	}
@@ -191,6 +190,7 @@ func (b *DynamoBatch) Write() error {
 	} else {
 		executors = int(math.Ceil(float64(size) / BatchConcurrency))
 	}
+	wg.Add(executors)
 
 	for i := 0; i < executors; i++ {
 		go b.executeWrite(q, &wg)
