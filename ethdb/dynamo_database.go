@@ -11,8 +11,8 @@ import (
 	"github.com/pkg/errors"
 	"time"
 	"math"
+		"strings"
 	"sync/atomic"
-	"strings"
 )
 
 const (
@@ -20,9 +20,9 @@ const (
 	StoreKey          = "StoreKey"
 	ValueKey          = "Data"
 	ExecutorBatchSize = 25
-	MaxExecutors      = 100
+	MaxExecutors      = 50
 	MaxTotalWrites    = 10000
-	FlushThreshold    = 250000
+	FlushThreshold    = 20000
 )
 
 type queue struct {
@@ -221,12 +221,11 @@ func (d *DynamoDatabase) writeExecutor(ch chan *kv, done chan struct{}) {
 				}
 				panic(err)
 			}
+			atomic.AddUint64(&d.batchesWritten, 1)
 		case <-done:
 			return
 		}
 	}
-
-	atomic.AddUint64(&d.batchesWritten, 1)
 }
 
 func (d *DynamoDatabase) Put(key []byte, value []byte) error {
