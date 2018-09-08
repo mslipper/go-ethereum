@@ -20,7 +20,7 @@ const (
 	ValueKey          = "Data"
 	ExecutorBatchSize = 25
 	MaxExecutors      = 8
-	MaxTotalWrites    = 1000
+	MaxTotalWrites    = 10000
 	FlushThreshold    = 1000000
 )
 
@@ -114,7 +114,6 @@ func NewDynamoDatabase() (Database, error) {
 		idleChan:   make(chan struct{}),
 	}
 
-	go res.startWriteQueue()
 	go res.startQueueMonitor()
 
 	return res, nil
@@ -128,7 +127,7 @@ func (d *DynamoDatabase) startWriteQueue() {
 			log.Trace("Nothing to write, sleeping")
 			d.idleChan <- struct{}{}
 			time.Sleep(1 * time.Second)
-			continue
+			return
 		}
 
 		var executors int
@@ -159,7 +158,6 @@ func (d *DynamoDatabase) startQueueMonitor() {
 			if size > FlushThreshold {
 				log.Warn("Waiting for full database flush", "size", size)
 				d.flushMtx.Lock()
-
 				var wg sync.WaitGroup
 				wg.Add(1)
 				go func() {
@@ -175,6 +173,7 @@ func (d *DynamoDatabase) startQueueMonitor() {
 						}
 					}
 				}()
+				go d.startWriteQueue()
 				wg.Wait()
 				d.flushMtx.Unlock()
 			}
