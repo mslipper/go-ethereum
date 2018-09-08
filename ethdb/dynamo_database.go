@@ -141,10 +141,10 @@ func (d *DynamoDatabase) startWriteQueue() {
 		var wg sync.WaitGroup
 		wg.Add(executors)
 		queue := &queue{items: kvs}
+		log.Info("Waiting on batch executors", "count", executors, "kvcount", len(kvs))
 		for i := 0; i < executors; i++ {
-			go d.writeExecutor(wg, queue)
+			go d.writeExecutor(&wg, queue)
 		}
-		log.Info("Waiting on batch executors", "count", executors)
 		wg.Wait()
 	}
 }
@@ -185,7 +185,7 @@ func (d *DynamoDatabase) startQueueMonitor() {
 	}
 }
 
-func (d *DynamoDatabase) writeExecutor(wg sync.WaitGroup, queue *queue) {
+func (d *DynamoDatabase) writeExecutor(wg *sync.WaitGroup, queue *queue) {
 	defer wg.Done()
 
 	for {
