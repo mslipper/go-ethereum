@@ -197,8 +197,8 @@ func (d *DynamoDatabase) writeExecutor(ch chan *kv, done chan struct{}) {
 			items = append(items, *kvp)
 			if len(items) == ExecutorBatchSize {
 				d.flushBatch(items)
+				items = nil
 			}
-			items = nil
 		case <-done:
 			d.flushBatch(items)
 			return
