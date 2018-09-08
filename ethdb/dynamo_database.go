@@ -199,6 +199,7 @@ func (d *DynamoDatabase) writeExecutor(ch chan *kv, done chan struct{}) {
 
 			if kv.del {
 				_, err = d.svc.DeleteItem(&dynamodb.DeleteItemInput{
+					TableName: aws.String(TableName),
 					Key: item,
 				})
 			} else {
@@ -206,6 +207,7 @@ func (d *DynamoDatabase) writeExecutor(ch chan *kv, done chan struct{}) {
 					B: kv.v,
 				}
 				_, err = d.svc.PutItem(&dynamodb.PutItemInput{
+					TableName: aws.String(TableName),
 					Item: item,
 				})
 			}
