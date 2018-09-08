@@ -11,15 +11,15 @@ import (
 	"github.com/pkg/errors"
 	"time"
 	"math"
-			"crypto/sha1"
-)
+	"crypto/sha1"
+	)
 
 const (
 	TableName         = "Geth-KV"
 	StoreKey          = "StoreKey"
 	ValueKey          = "Data"
 	ExecutorBatchSize = 25
-	MaxExecutors      = 5
+	MaxExecutors      = 2
 	MaxTotalWrites    = 10000
 	FlushThreshold    = 50000
 )
@@ -67,8 +67,7 @@ func (q *queue) PopBatch() []kv {
 	ops := make(map[string]*kv)
 
 	for len(q.items) > 0 && len(ops) <= MaxTotalWrites {
-		idx := 0
-		kv := q.items[idx]
+		kv := q.items[0]
 		ops[string(kv.k)] = &kv
 		q.items = q.items[1:]
 	}
@@ -135,7 +134,7 @@ func (d *DynamoDatabase) startWriteQueue() {
 			executors = MaxExecutors
 		}
 
-		ch := make(chan *kv, executors)
+		ch := make(chan kv, executors)
 		done := make(chan struct{})
 
 		for i := 0; i < executors; i++ {
@@ -143,7 +142,7 @@ func (d *DynamoDatabase) startWriteQueue() {
 		}
 
 		for _, kv := range kvs {
-			ch <- &kv
+			ch <- kv
 		}
 
 		done <- struct{}{}
@@ -188,13 +187,13 @@ func (d *DynamoDatabase) startQueueMonitor() {
 	}
 }
 
-func (d *DynamoDatabase) writeExecutor(ch chan *kv, done chan struct{}) {
+func (d *DynamoDatabase) writeExecutor(ch chan kv, done chan struct{}) {
 	var items []kv
 
 	for {
 		select {
-		case kvp := <-ch:
-			items = append(items, *kvp)
+		case item := <-ch:
+			items = append(items, item)
 			if len(items) == ExecutorBatchSize {
 				d.flushBatch(items)
 				items = nil
