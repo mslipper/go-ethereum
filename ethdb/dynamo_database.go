@@ -21,7 +21,7 @@ const (
 	ExecutorBatchSize = 25
 	MaxExecutors      = 8
 	MaxTotalWrites    = 10000
-	FlushThreshold    = 1000000
+	FlushThreshold    = 10000000
 )
 
 type queue struct {
