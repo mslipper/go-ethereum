@@ -13,6 +13,7 @@ import (
 	"math"
 		"strings"
 	"sync/atomic"
+	"encoding/binary"
 )
 
 const (
@@ -375,8 +376,25 @@ func (b *DynamoBatch) Reset() {
 
 func keyAttrs(key []byte) map[string]*dynamodb.AttributeValue {
 	out := make(map[string]*dynamodb.AttributeValue)
+	hash := hashCode(key)
+	var hashedKey []byte
+	hashedKey = append(hashedKey, key...)
+	hashedKey = append(hashedKey, hash...)
+
 	out[StoreKey] = &dynamodb.AttributeValue{
 		B: key,
 	}
 	return out
+}
+
+func hashCode(key []byte) []byte {
+	keyStr := string(key)
+	var hash uint64 = 14695981039346656037
+	for i := 0; i < len(keyStr); i++ {
+		hash ^= uint64(keyStr[i])
+		hash *= 1099511628211
+	}
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], hash)
+	return buf[:]
 }
