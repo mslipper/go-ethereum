@@ -19,9 +19,9 @@ const (
 	StoreKey          = "StoreKey"
 	ValueKey          = "Data"
 	ExecutorBatchSize = 25
-	MaxExecutors      = 25
+	MaxExecutors      = 100
 	MaxTotalWrites    = 10000
-	FlushThreshold    = 100000
+	FlushThreshold    = 1000000
 )
 
 type queue struct {
@@ -167,7 +167,7 @@ func (d *DynamoDatabase) startQueueMonitor() {
 				var wg sync.WaitGroup
 				wg.Add(1)
 				go func() {
-					progress := time.NewTicker(5 * time.Second)
+					progress := time.NewTicker(1 * time.Second)
 
 					for {
 						select {
