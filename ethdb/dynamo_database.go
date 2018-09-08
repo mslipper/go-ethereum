@@ -10,7 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/pkg/errors"
 	"time"
-	"github.com/allegro/bigcache"
+	"fmt"
 )
 
 const (
@@ -18,98 +18,7 @@ const (
 	StoreKey    = "StoreKey"
 	ValueKey    = "Data"
 	BatchSize   = 25
-	CacheSizeMB = 2048
-	Megabyte    = 1000000
 )
-
-type dynamoCache struct {
-	cacheHits   uint
-	cacheMisses uint
-	cache       *bigcache.BigCache
-}
-
-func NewDynamoCache() *dynamoCache {
-	config := bigcache.Config{
-		Shards:           1024,
-		LifeWindow:       24 * time.Hour,
-		HardMaxCacheSize: CacheSizeMB,
-	}
-
-	cache, err := bigcache.NewBigCache(config)
-	if err != nil {
-		panic(err)
-	}
-
-	res := &dynamoCache{
-		cache: cache,
-	}
-
-	go func() {
-		tick := time.NewTicker(1 * time.Minute)
-
-		for {
-			select {
-			case <-tick.C:
-				log.Info(
-					"Cache metrics",
-					"hits",
-					res.cacheHits,
-					"misses",
-					res.cacheMisses,
-					"rate",
-					(float64(res.cacheHits)/float64(res.cacheMisses+res.cacheHits))*100,
-					"size",
-					res.cache.Len(),
-				)
-			}
-		}
-	}()
-
-	return res
-}
-
-func (c *dynamoCache) Size() int {
-	return c.cache.Capacity()
-}
-
-func (c *dynamoCache) Flush() {
-	err := c.cache.Reset()
-	if err != nil {
-		panic(err)
-	}
-}
-
-func (c *dynamoCache) Set(key []byte, value []byte) {
-	err := c.cache.Set(string(key), value)
-	if err != nil {
-		panic(err)
-	}
-}
-
-func (c *dynamoCache) Get(key []byte) []byte {
-	res, err := c.cache.Get(string(key))
-	if err != nil {
-		_, ok := err.(*bigcache.EntryNotFoundError)
-		if !ok {
-			panic(err)
-		}
-
-		c.cacheMisses++
-		return nil
-	}
-	c.cacheHits++
-	return res
-}
-
-func (c *dynamoCache) Delete(key []byte) {
-	err := c.cache.Delete(string(key))
-	if err != nil {
-		_, ok := err.(*bigcache.EntryNotFoundError)
-		if !ok {
-			panic(err)
-		}
-	}
-}
 
 type queue struct {
 	items []kv
@@ -153,11 +62,8 @@ func (q *queue) Size() int {
 type DynamoDatabase struct {
 	svc        *dynamodb.DynamoDB
 	writeQueue *queue
-	cache      *dynamoCache
 	keySet     *KeySet
-	flushing   bool
-	putMtx     sync.Mutex
-	empty      chan struct{}
+	batchesWritten uint
 }
 
 func NewDynamoDatabase() (Database, error) {
@@ -173,14 +79,12 @@ func NewDynamoDatabase() (Database, error) {
 
 	res := &DynamoDatabase{
 		svc:        svc,
-		cache:      NewDynamoCache(),
 		writeQueue: &queue{},
-		empty:      make(chan struct{}),
 		keySet:     NewKeySet(),
 	}
 
-	go res.startCacheWatcher()
 	go res.startWriteQueue()
+	go res.startQueueMonitor()
 
 	return res, nil
 }
@@ -191,7 +95,6 @@ func (d *DynamoDatabase) startWriteQueue() {
 
 		if kvs == nil {
 			log.Trace("Nothing to write, sleeping")
-			d.empty <- struct{}{}
 			time.Sleep(1 * time.Second)
 			continue
 		}
@@ -246,28 +149,18 @@ func (d *DynamoDatabase) startWriteQueue() {
 			panic(err)
 		}
 
+		d.batchesWritten += uint(len(reqs))
 		log.Trace("Wrote batch", "size", len(reqs), "duration", time.Since(start), "remaining", d.writeQueue.Size())
 		kvs = d.writeQueue.PopItems(BatchSize)
 	}
 }
 
-func (d *DynamoDatabase) startCacheWatcher() {
-	tick := time.NewTicker(5 * time.Minute)
+func (d *DynamoDatabase) startQueueMonitor() {
+	ticker := time.NewTicker(1 * time.Minute)
 
 	for {
-		select {
-		case <-tick.C:
-			utilization := float64(d.cache.Size()) / float64(CacheSizeMB*Megabyte)
-			if utilization > 0.85 {
-				log.Info("Utilization above 85%, flushing cache and writes", "utilization", utilization)
-				d.putMtx.Lock()
-				<-d.empty
-				d.cache.Flush()
-				d.putMtx.Unlock()
-			}
-		case <-d.empty:
-			continue
-		}
+		<- ticker.C
+		fmt.Println("Batch stats", "written", d.batchesWritten, "size", d.writeQueue.Size())
 	}
 }
 
@@ -294,17 +187,16 @@ func (d *DynamoDatabase) Delete(key []byte) error {
 		TableName: aws.String(TableName),
 	}
 	_, err := d.svc.DeleteItem(input)
-	d.cache.Delete(key)
+	d.keySet.Remove(key)
 	return err
 }
 
 func (d *DynamoDatabase) Get(key []byte) ([]byte, error) {
 	log.Trace("Getting key.", "key", hexutil.Encode(key))
-	cached := d.cache.Get(key)
-	return cached, nil
+	has, _ := d.Has(key)
 
-	if cached != nil {
-		return cached, nil
+	if !has {
+		return nil, nil
 	}
 
 	input := &dynamodb.GetItemInput{
@@ -323,7 +215,7 @@ func (d *DynamoDatabase) Get(key []byte) ([]byte, error) {
 	}
 
 	val := res.Item[ValueKey].B
-	d.cache.Set(key, val)
+	d.keySet.Add(key)
 	return val, nil
 }
 
@@ -335,15 +227,10 @@ func (d *DynamoDatabase) Close() {
 }
 
 func (d *DynamoDatabase) enqueue(items []kv) {
-	d.putMtx.Lock()
-	defer d.putMtx.Unlock()
-
 	for _, item := range items {
 		if item.del {
-			d.cache.Delete(item.k)
 			d.keySet.Remove(item.k)
 		} else {
-			d.cache.Set(item.k, item.v)
 			d.keySet.Add(item.k)
 		}
 	}
