@@ -98,7 +98,26 @@ func (s *QueueingCache) Delete(key []byte) {
 func (s *QueueingCache) Has(key []byte) bool {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
+	return s.has(key)
+}
 
+func (s *QueueingCache) Get(key []byte) []byte {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+
+	if !s.has(key) {
+		return nil
+	}
+
+	val, err := s.data.Get(string(key))
+	if err != nil {
+		panic(err)
+	}
+
+	return val
+}
+
+func (s *QueueingCache) has(key []byte) bool {
 	_, err := s.keys.Get(string(key))
 	if err != nil {
 		_, ok := err.(*bigcache.EntryNotFoundError)
@@ -110,20 +129,4 @@ func (s *QueueingCache) Has(key []byte) bool {
 	}
 
 	return true
-}
-
-func (s *QueueingCache) Get(key []byte) []byte {
-	s.mtx.Lock()
-	defer s.mtx.Unlock()
-
-	if !s.Has(key) {
-		return nil
-	}
-
-	val, err := s.data.Get(string(key))
-	if err != nil {
-		panic(err)
-	}
-
-	return val
 }
