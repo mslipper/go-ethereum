@@ -10,13 +10,14 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/pkg/errors"
 	"time"
-	)
+)
 
 const (
-	TableName   = "Geth-KV"
-	StoreKey    = "StoreKey"
-	ValueKey    = "Data"
-	BatchSize   = 25
+	TableName      = "Geth-KV"
+	StoreKey       = "StoreKey"
+	ValueKey       = "Data"
+	BatchSize      = 25
+	FlushThreshold = 250000
 )
 
 type queue struct {
@@ -63,6 +64,8 @@ type DynamoDatabase struct {
 	writeQueue     *queue
 	cache          *QueueingCache
 	batchesWritten uint
+	flushMtx       sync.Mutex
+	idleChan       chan struct{}
 }
 
 func NewDynamoDatabase() (Database, error) {
@@ -94,6 +97,7 @@ func (d *DynamoDatabase) startWriteQueue() {
 
 		if kvs == nil {
 			log.Trace("Nothing to write, sleeping")
+			d.idleChan <- struct{}{}
 			time.Sleep(1 * time.Second)
 			continue
 		}
@@ -157,8 +161,21 @@ func (d *DynamoDatabase) startWriteQueue() {
 func (d *DynamoDatabase) startQueueMonitor() {
 	ticker := time.NewTicker(1 * time.Minute)
 
-	for range ticker.C {
-		log.Info("Batch stats", "written", d.batchesWritten, "size", d.writeQueue.Size())
+	for {
+		select {
+		case <-ticker.C:
+			log.Info("Batch stats", "written", d.batchesWritten, "size", d.writeQueue.Size())
+			diff := uint(d.writeQueue.Size())-d.batchesWritten
+			if diff > FlushThreshold {
+				log.Warn("Waiting for full database flush", "diff", diff)
+
+				d.flushMtx.Lock()
+				<-d.idleChan
+				d.flushMtx.Unlock()
+			}
+		case <-d.idleChan:
+			continue
+		}
 	}
 }
 
@@ -229,6 +246,9 @@ func (d *DynamoDatabase) Close() {
 }
 
 func (d *DynamoDatabase) enqueue(items []kv) {
+	d.flushMtx.Lock()
+	defer d.flushMtx.Unlock()
+
 	for _, item := range items {
 		if item.del {
 			d.cache.Delete(item.k)

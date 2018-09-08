@@ -1,10 +1,11 @@
 package ethdb
 
 import (
-						"github.com/ethereum/go-ethereum/log"
-			"time"
+	"github.com/ethereum/go-ethereum/log"
+	"time"
 	"github.com/allegro/bigcache"
 	"sync"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
 const (
@@ -14,15 +15,16 @@ const (
 type QueueingCache struct {
 	keys *bigcache.BigCache
 	data *bigcache.BigCache
-	mtx sync.Mutex
+	mtx  sync.Mutex
 }
 
 var empty []byte
 
 func NewKeySet() *QueueingCache {
 	ksConfig := bigcache.Config{
-		Shards: 1024,
-		LifeWindow:       24 * time.Hour,
+		Shards:       1024,
+		LifeWindow:   24 * time.Hour,
+		MaxEntrySize: 2048,
 	}
 	dataConfig := bigcache.Config{
 		Shards:           1024,
@@ -111,7 +113,18 @@ func (s *QueueingCache) Get(key []byte) []byte {
 
 	val, err := s.data.Get(string(key))
 	if err != nil {
-		panic(err)
+		_, ok := err.(*bigcache.EntryNotFoundError)
+		if !ok {
+			panic(err)
+		}
+
+		log.Warn("Found key in set that doesn't exist", "key", hexutil.Encode(key))
+		err := s.keys.Delete(string(key))
+		if err != nil {
+			panic(err)
+		}
+
+		return nil
 	}
 
 	return val
