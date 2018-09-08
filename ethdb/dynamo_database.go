@@ -10,8 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/pkg/errors"
 	"time"
-	"fmt"
-)
+	)
 
 const (
 	TableName   = "Geth-KV"
@@ -159,7 +158,7 @@ func (d *DynamoDatabase) startQueueMonitor() {
 	ticker := time.NewTicker(1 * time.Minute)
 
 	for range ticker.C {
-		fmt.Println("Batch stats", "written", d.batchesWritten, "size", d.writeQueue.Size())
+		log.Info("Batch stats", "written", d.batchesWritten, "size", d.writeQueue.Size())
 	}
 }
 

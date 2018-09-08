@@ -4,6 +4,7 @@ import (
 						"github.com/ethereum/go-ethereum/log"
 			"time"
 	"github.com/allegro/bigcache"
+	"sync"
 )
 
 const (
@@ -13,6 +14,7 @@ const (
 type QueueingCache struct {
 	keys *bigcache.BigCache
 	data *bigcache.BigCache
+	mtx sync.Mutex
 }
 
 var empty []byte
@@ -62,6 +64,9 @@ func NewKeySet() *QueueingCache {
 }
 
 func (s *QueueingCache) Set(key []byte, value []byte) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+
 	err := s.keys.Set(string(key), empty)
 	if err != nil {
 		panic(err)
@@ -73,6 +78,9 @@ func (s *QueueingCache) Set(key []byte, value []byte) {
 }
 
 func (s *QueueingCache) Delete(key []byte) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+
 	err := s.keys.Delete(string(key))
 	if err != nil {
 		_, ok := err.(*bigcache.EntryNotFoundError)
@@ -88,6 +96,9 @@ func (s *QueueingCache) Delete(key []byte) {
 }
 
 func (s *QueueingCache) Has(key []byte) bool {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+
 	_, err := s.keys.Get(string(key))
 	if err != nil {
 		_, ok := err.(*bigcache.EntryNotFoundError)
@@ -102,6 +113,9 @@ func (s *QueueingCache) Has(key []byte) bool {
 }
 
 func (s *QueueingCache) Get(key []byte) []byte {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+
 	if !s.Has(key) {
 		return nil
 	}
