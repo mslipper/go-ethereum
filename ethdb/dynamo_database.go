@@ -64,7 +64,6 @@ func (q *queue) PopBatch() []kv {
 	defer q.mtx.Unlock()
 
 	var out []kv
-	var uniqueKvs []kv
 	usedKeys := make(map[string]bool)
 
 	for len(q.items) > 0 && len(out) <= MaxTotalWrites {
@@ -77,9 +76,8 @@ func (q *queue) PopBatch() []kv {
 		}
 
 		q.items = q.items[1:]
-		out = append(out, kv)
 		usedKeys[keyStr] = true
-		uniqueKvs = append(uniqueKvs, kv)
+		out = append(out, kv)
 	}
 
 	return out
@@ -146,6 +144,7 @@ func (d *DynamoDatabase) startWriteQueue() {
 		for i := 0; i < executors; i++ {
 			go d.writeExecutor(wg, queue)
 		}
+		log.Info("Waiting on batch executors", "count", executors)
 		wg.Wait()
 	}
 }
@@ -193,8 +192,11 @@ func (d *DynamoDatabase) writeExecutor(wg sync.WaitGroup, queue *queue) {
 		kvs := queue.PopItems(ExecutorBatchSize)
 
 		if kvs == nil {
+			log.Info("done")
 			return
 		}
+
+		log.Info("Writing values", "count", len(kvs))
 
 		start := time.Now()
 		var reqs []*dynamodb.WriteRequest
