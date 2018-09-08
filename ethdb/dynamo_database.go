@@ -394,6 +394,8 @@ func hashCode(key []byte) []byte {
 		hash ^= uint64(keyStr[i])
 		hash *= 1099511628211
 	}
+
+	hash = (hash % 200) + 1
 	var buf [8]byte
 	binary.BigEndian.PutUint64(buf[:], hash)
 	return buf[:]
