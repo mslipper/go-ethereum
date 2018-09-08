@@ -179,7 +179,7 @@ func (d *DynamoDatabase) startQueueMonitor() {
 					for {
 						select {
 						case <-progress.C:
-							log.Info("Flushing to database", "remaining", size - d.writeQueue.Size())
+							log.Info("Flushing to database", "remaining", d.writeQueue.Size())
 						case <-d.idleChan:
 							wg.Done()
 							return
