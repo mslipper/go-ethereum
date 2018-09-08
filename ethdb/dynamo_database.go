@@ -156,7 +156,7 @@ func (d *DynamoDatabase) startWriteQueue() {
 }
 
 func (d *DynamoDatabase) startQueueMonitor() {
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(15 * time.Second)
 
 	for {
 		select {
