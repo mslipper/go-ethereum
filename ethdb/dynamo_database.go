@@ -60,9 +60,9 @@ func (q *queue) Size() int {
 }
 
 type DynamoDatabase struct {
-	svc        *dynamodb.DynamoDB
-	writeQueue *queue
-	keySet     *KeySet
+	svc            *dynamodb.DynamoDB
+	writeQueue     *queue
+	cache          *QueueingCache
 	batchesWritten uint
 }
 
@@ -80,7 +80,7 @@ func NewDynamoDatabase() (Database, error) {
 	res := &DynamoDatabase{
 		svc:        svc,
 		writeQueue: &queue{},
-		keySet:     NewKeySet(),
+		cache:      NewKeySet(),
 	}
 
 	go res.startWriteQueue()
@@ -186,16 +186,21 @@ func (d *DynamoDatabase) Delete(key []byte) error {
 		TableName: aws.String(TableName),
 	}
 	_, err := d.svc.DeleteItem(input)
-	d.keySet.Remove(key)
+	d.cache.Delete(key)
 	return err
 }
 
 func (d *DynamoDatabase) Get(key []byte) ([]byte, error) {
 	log.Trace("Getting key.", "key", hexutil.Encode(key))
-	has, _ := d.Has(key)
+	has := d.cache.Has(key)
 
 	if !has {
 		return nil, nil
+	}
+
+	cached := d.cache.Get(key)
+	if cached != nil {
+		return cached, nil
 	}
 
 	input := &dynamodb.GetItemInput{
@@ -203,7 +208,6 @@ func (d *DynamoDatabase) Get(key []byte) ([]byte, error) {
 		TableName:      aws.String(TableName),
 		ConsistentRead: aws.Bool(true),
 	}
-
 	res, err := d.svc.GetItem(input)
 	if err != nil {
 		return nil, err
@@ -214,12 +218,12 @@ func (d *DynamoDatabase) Get(key []byte) ([]byte, error) {
 	}
 
 	val := res.Item[ValueKey].B
-	d.keySet.Add(key)
+	d.cache.Set(key, val)
 	return val, nil
 }
 
 func (d *DynamoDatabase) Has(key []byte) (bool, error) {
-	return d.keySet.Has(key), nil
+	return d.cache.Has(key), nil
 }
 
 func (d *DynamoDatabase) Close() {
@@ -228,9 +232,9 @@ func (d *DynamoDatabase) Close() {
 func (d *DynamoDatabase) enqueue(items []kv) {
 	for _, item := range items {
 		if item.del {
-			d.keySet.Remove(item.k)
+			d.cache.Delete(item.k)
 		} else {
-			d.keySet.Add(item.k)
+			d.cache.Set(item.k, item.v)
 		}
 	}
 
