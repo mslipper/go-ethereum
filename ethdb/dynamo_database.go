@@ -13,7 +13,8 @@ import (
 	"math"
 		"strings"
 	"sync/atomic"
-	)
+	"fmt"
+)
 
 const (
 	TableName         = "Geth-KV"
@@ -376,7 +377,7 @@ func (b *DynamoBatch) Reset() {
 func keyAttrs(key []byte) map[string]*dynamodb.AttributeValue {
 	out := make(map[string]*dynamodb.AttributeValue)
 	hash := hashCode(key)
-	cKey := hexutil.Encode(key) + hash
+	cKey := fmt.Sprintf("%s.%d", hexutil.Encode(key), hash)
 
 	out[StoreKey] = &dynamodb.AttributeValue{
 		S: aws.String(cKey),
@@ -384,7 +385,7 @@ func keyAttrs(key []byte) map[string]*dynamodb.AttributeValue {
 	return out
 }
 
-func hashCode(key []byte) string {
+func hashCode(key []byte) uint64 {
 	keyStr := string(key)
 	var hash uint64 = 14695981039346656037
 	for i := 0; i < len(keyStr); i++ {
@@ -393,5 +394,5 @@ func hashCode(key []byte) string {
 	}
 
 	hash = (hash % 200) + 1
-	return string(hash)
+	return hash
 }
