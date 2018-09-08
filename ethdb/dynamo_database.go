@@ -10,14 +10,18 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/pkg/errors"
 	"time"
+	"math"
+	"sync/atomic"
 )
 
 const (
-	TableName      = "Geth-KV"
-	StoreKey       = "StoreKey"
-	ValueKey       = "Data"
-	BatchSize      = 25
-	FlushThreshold = 250000
+	TableName         = "Geth-KV"
+	StoreKey          = "StoreKey"
+	ValueKey          = "Data"
+	ExecutorBatchSize = 25
+	MaxExecutors      = 5
+	MaxTotalWrites    = 10000
+	FlushThreshold    = 250000
 )
 
 type queue struct {
@@ -55,6 +59,32 @@ func (q *queue) PopItems(n int) []kv {
 	return out
 }
 
+func (q *queue) PopBatch() []kv {
+	q.mtx.Lock()
+	defer q.mtx.Unlock()
+
+	var out []kv
+	var uniqueKvs []kv
+	usedKeys := make(map[string]bool)
+
+	for len(q.items) > 0 && len(out) <= MaxTotalWrites {
+		idx := 0
+		kv := q.items[idx]
+		keyStr := string(kv.k)
+
+		if _, has := usedKeys[keyStr]; has {
+			break
+		}
+
+		q.items = q.items[1:]
+		out = append(out, kv)
+		usedKeys[keyStr] = true
+		uniqueKvs = append(uniqueKvs, kv)
+	}
+
+	return out
+}
+
 func (q *queue) Size() int {
 	return len(q.items)
 }
@@ -63,7 +93,7 @@ type DynamoDatabase struct {
 	svc            *dynamodb.DynamoDB
 	writeQueue     *queue
 	cache          *QueueingCache
-	batchesWritten uint
+	batchesWritten uint64
 	flushMtx       sync.Mutex
 	idleChan       chan struct{}
 }
@@ -94,7 +124,7 @@ func NewDynamoDatabase() (Database, error) {
 
 func (d *DynamoDatabase) startWriteQueue() {
 	for {
-		kvs := d.writeQueue.PopItems(BatchSize)
+		kvs := d.writeQueue.PopBatch()
 
 		if kvs == nil {
 			log.Trace("Nothing to write, sleeping")
@@ -103,59 +133,20 @@ func (d *DynamoDatabase) startWriteQueue() {
 			continue
 		}
 
-		start := time.Now()
-		var uniqueKvs []kv
-		usedKeys := make(map[string]bool)
-		for i := 0; i < len(kvs); i++ {
-			kv := kvs[i]
-			keyStr := string(kv.k)
-			if usedKeys[keyStr] {
-				break
-			}
-
-			usedKeys[keyStr] = true
-			uniqueKvs = append(uniqueKvs, kv)
+		var executors int
+		size := len(kvs)
+		if size < (ExecutorBatchSize * MaxExecutors) {
+			executors = int(math.Ceil(float64(size) / ExecutorBatchSize))
+		} else {
+			executors = MaxExecutors
 		}
-
-		var reqs []*dynamodb.WriteRequest
-		for _, kv := range uniqueKvs {
-			k := kv.k
-			v := kv.v
-			del := kv.del
-			req := &dynamodb.WriteRequest{}
-			item := keyAttrs(k)
-
-			if del {
-				req.DeleteRequest = &dynamodb.DeleteRequest{
-					Key: item,
-				}
-			} else {
-				item[ValueKey] = &dynamodb.AttributeValue{
-					B: v,
-				}
-				req.PutRequest = &dynamodb.PutRequest{
-					Item: item,
-				}
-			}
-
-			reqs = append(reqs, req)
-			log.Trace("Preparing batch write.", "kv", hexutil.Encode(k))
+		var wg sync.WaitGroup
+		wg.Add(executors)
+		queue := &queue{items: kvs}
+		for i := 0; i < executors; i++ {
+			go d.writeExecutor(wg, queue)
 		}
-
-		reqItems := make(map[string][]*dynamodb.WriteRequest)
-		reqItems[TableName] = reqs
-
-		_, err := d.svc.BatchWriteItem(&dynamodb.BatchWriteItemInput{
-			RequestItems: reqItems,
-		})
-
-		if err != nil {
-			panic(err)
-		}
-
-		d.batchesWritten += uint(len(reqs))
-		log.Trace("Wrote batch", "size", len(reqs), "duration", time.Since(start), "remaining", d.writeQueue.Size())
-		kvs = d.writeQueue.PopItems(BatchSize)
+		wg.Wait()
 	}
 }
 
@@ -192,6 +183,58 @@ func (d *DynamoDatabase) startQueueMonitor() {
 		case <-d.idleChan:
 			continue
 		}
+	}
+}
+
+func (d *DynamoDatabase) writeExecutor(wg sync.WaitGroup, queue *queue) {
+	defer wg.Done()
+
+	for {
+		kvs := queue.PopItems(ExecutorBatchSize)
+
+		if kvs == nil {
+			return
+		}
+
+		start := time.Now()
+		var reqs []*dynamodb.WriteRequest
+		for _, kv := range kvs {
+			k := kv.k
+			v := kv.v
+			del := kv.del
+			req := &dynamodb.WriteRequest{}
+			item := keyAttrs(k)
+
+			if del {
+				req.DeleteRequest = &dynamodb.DeleteRequest{
+					Key: item,
+				}
+			} else {
+				item[ValueKey] = &dynamodb.AttributeValue{
+					B: v,
+				}
+				req.PutRequest = &dynamodb.PutRequest{
+					Item: item,
+				}
+			}
+
+			reqs = append(reqs, req)
+			log.Trace("Preparing batch write.", "kv", hexutil.Encode(k))
+		}
+
+		reqItems := make(map[string][]*dynamodb.WriteRequest)
+		reqItems[TableName] = reqs
+
+		_, err := d.svc.BatchWriteItem(&dynamodb.BatchWriteItemInput{
+			RequestItems: reqItems,
+		})
+
+		if err != nil {
+			panic(err)
+		}
+
+		atomic.AddUint64(&d.batchesWritten, uint64(len(reqs)))
+		log.Trace("Wrote batch", "size", len(reqs), "duration", time.Since(start), "remaining", d.writeQueue.Size())
 	}
 }
 
