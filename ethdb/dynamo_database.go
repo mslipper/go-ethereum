@@ -66,19 +66,11 @@ func (q *queue) PopBatch() []kv {
 	defer q.mtx.Unlock()
 
 	var out []kv
-	usedKeys := make(map[string]bool)
 
 	for len(q.items) > 0 && len(out) <= MaxTotalWrites {
 		idx := 0
 		kv := q.items[idx]
-		keyStr := string(kv.k)
-
-		if _, has := usedKeys[keyStr]; has {
-			break
-		}
-
 		q.items = q.items[1:]
-		usedKeys[keyStr] = true
 		out = append(out, kv)
 	}
 
