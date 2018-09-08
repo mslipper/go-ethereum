@@ -66,12 +66,17 @@ func (q *queue) PopBatch() []kv {
 	defer q.mtx.Unlock()
 
 	var out []kv
+	ops := make(map[string]*kv)
 
-	for len(q.items) > 0 && len(out) <= MaxTotalWrites {
+	for len(q.items) > 0 && len(ops) <= MaxTotalWrites {
 		idx := 0
 		kv := q.items[idx]
+		ops[string(kv.k)] = &kv
 		q.items = q.items[1:]
-		out = append(out, kv)
+	}
+
+	for _, kp := range ops {
+		out = append(out, *kp)
 	}
 
 	return out
