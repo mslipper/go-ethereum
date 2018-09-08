@@ -158,8 +158,7 @@ func (d *DynamoDatabase) startWriteQueue() {
 func (d *DynamoDatabase) startQueueMonitor() {
 	ticker := time.NewTicker(1 * time.Minute)
 
-	for {
-		<- ticker.C
+	for range ticker.C {
 		fmt.Println("Batch stats", "written", d.batchesWritten, "size", d.writeQueue.Size())
 	}
 }
