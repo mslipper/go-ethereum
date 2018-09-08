@@ -14,6 +14,7 @@ var empty []byte
 
 func NewKeySet() *KeySet {
 	config := bigcache.Config{
+		Shards: 1024,
 		LifeWindow:       24 * time.Hour,
 	}
 	cache, err := bigcache.NewBigCache(config)
