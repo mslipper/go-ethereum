@@ -166,9 +166,9 @@ func (d *DynamoDatabase) startQueueMonitor() {
 		select {
 		case <-ticker.C:
 			log.Info("Batch stats", "written", d.batchesWritten, "size", d.writeQueue.Size())
-			diff := d.writeQueue.Size() - int(d.batchesWritten)
-			if diff > FlushThreshold {
-				log.Warn("Waiting for full database flush", "diff", diff)
+			size := d.writeQueue.Size()
+			if size > FlushThreshold {
+				log.Warn("Waiting for full database flush", "size", size)
 				d.flushMtx.Lock()
 
 				var wg sync.WaitGroup
@@ -179,7 +179,7 @@ func (d *DynamoDatabase) startQueueMonitor() {
 					for {
 						select {
 						case <-progress.C:
-							log.Info("Flushing to database", "remaining", d.writeQueue.Size())
+							log.Info("Flushing to database", "remaining", size - d.writeQueue.Size())
 						case <-d.idleChan:
 							wg.Done()
 							return
