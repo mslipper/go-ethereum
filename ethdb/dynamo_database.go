@@ -20,7 +20,7 @@ const (
 	StoreKey          = "StoreKey"
 	ValueKey          = "Data"
 	ExecutorBatchSize = 25
-	MaxExecutors      = 50
+	MaxExecutors      = 500
 	MaxTotalWrites    = 10000
 	FlushThreshold    = 20000
 )
