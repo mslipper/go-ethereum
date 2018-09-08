@@ -11,17 +11,18 @@ import (
 	"github.com/pkg/errors"
 	"time"
 	"github.com/allegro/bigcache"
-	)
+)
 
 const (
-	TableName        = "Geth-KV"
-	StoreKey         = "StoreKey"
-	ValueKey         = "Data"
-	BatchSize        = 25
+	TableName   = "Geth-KV"
+	StoreKey    = "StoreKey"
+	ValueKey    = "Data"
+	BatchSize   = 25
+	CacheSizeMB = 2048
+	Megabyte    = 1000000
 )
 
 type dynamoCache struct {
-	size        uint
 	cacheHits   uint
 	cacheMisses uint
 	cache       *bigcache.BigCache
@@ -30,8 +31,8 @@ type dynamoCache struct {
 func NewDynamoCache() *dynamoCache {
 	config := bigcache.Config{
 		Shards:           1024,
-		LifeWindow:       5 * time.Minute,
-		HardMaxCacheSize: 2048,
+		LifeWindow:       24 * time.Hour,
+		HardMaxCacheSize: CacheSizeMB,
 	}
 
 	cache, err := bigcache.NewBigCache(config)
@@ -40,7 +41,6 @@ func NewDynamoCache() *dynamoCache {
 	}
 
 	res := &dynamoCache{
-		size:  2000,
 		cache: cache,
 	}
 
@@ -66,6 +66,17 @@ func NewDynamoCache() *dynamoCache {
 	}()
 
 	return res
+}
+
+func (c *dynamoCache) Size() int {
+	return c.cache.Capacity()
+}
+
+func (c *dynamoCache) Flush() {
+	err := c.cache.Reset()
+	if err != nil {
+		panic(err)
+	}
 }
 
 func (c *dynamoCache) Set(key []byte, value []byte) {
@@ -145,6 +156,9 @@ type DynamoDatabase struct {
 	svc        *dynamodb.DynamoDB
 	writeQueue *queue
 	cache      *dynamoCache
+	flushing   bool
+	putMtx     sync.Mutex
+	empty      chan struct{}
 }
 
 func NewDynamoDatabase() (Database, error) {
@@ -162,9 +176,11 @@ func NewDynamoDatabase() (Database, error) {
 		svc:        svc,
 		cache:      NewDynamoCache(),
 		writeQueue: &queue{},
+		empty:      make(chan struct{}),
 	}
 
 	go res.startWriteQueue()
+	go res.startCacheWatcher()
 
 	return res, nil
 }
@@ -175,6 +191,7 @@ func (d *DynamoDatabase) startWriteQueue() {
 
 		if kvs == nil {
 			log.Trace("Nothing to write, sleeping")
+			d.empty <- struct{}{}
 			time.Sleep(1 * time.Second)
 			continue
 		}
@@ -234,6 +251,26 @@ func (d *DynamoDatabase) startWriteQueue() {
 	}
 }
 
+func (d *DynamoDatabase) startCacheWatcher() {
+	tick := time.NewTicker(1 * time.Second)
+
+	for {
+		select {
+		case <-tick.C:
+			utilization := float64(d.cache.Size()) / float64(CacheSizeMB*Megabyte)
+			if utilization > 0.85 {
+				log.Info("Utilization above 85%, flushing cache and writes", "utilization", utilization)
+				d.putMtx.Lock()
+				<-d.empty
+				d.cache.Flush()
+				d.putMtx.Unlock()
+			}
+		case <-d.empty:
+			continue
+		}
+	}
+}
+
 func (d *DynamoDatabase) Put(key []byte, value []byte) error {
 	log.Trace("Writing key.", "key", hexutil.Encode(key), "valuelen", len(value))
 
@@ -289,6 +326,9 @@ func (d *DynamoDatabase) Get(key []byte) ([]byte, error) {
 }
 
 func (d *DynamoDatabase) Has(key []byte) (bool, error) {
+	d.putMtx.Lock()
+	defer d.putMtx.Unlock()
+
 	res, err := d.Get(key)
 	if err != nil {
 		return false, err
@@ -301,6 +341,9 @@ func (d *DynamoDatabase) Close() {
 }
 
 func (d *DynamoDatabase) enqueue(items []kv) {
+	d.putMtx.Lock()
+	defer d.putMtx.Unlock()
+
 	for _, item := range items {
 		if item.del {
 			d.cache.Delete(item.k)
