@@ -330,9 +330,6 @@ func (d *DynamoDatabase) Get(key []byte) ([]byte, error) {
 func (d *DynamoDatabase) Has(key []byte) (bool, error) {
 	d.putMtx.Lock()
 	defer d.putMtx.Unlock()
-
-	log.Info("Checking has")
-
 	res, err := d.Get(key)
 	if err != nil {
 		return false, err
