@@ -11,9 +11,7 @@ import (
 	"github.com/pkg/errors"
 	"time"
 	"math"
-	"strings"
-	"sync/atomic"
-		"crypto/sha1"
+			"crypto/sha1"
 )
 
 const (
@@ -191,38 +189,62 @@ func (d *DynamoDatabase) startQueueMonitor() {
 }
 
 func (d *DynamoDatabase) writeExecutor(ch chan *kv, done chan struct{}) {
+	var items []kv
+
 	for {
 		select {
 		case kvp := <-ch:
-			kv := *kvp
-			item := keyAttrs(kv.k)
-			var err error
-
-			if kv.del {
-				_, err = d.svc.DeleteItem(&dynamodb.DeleteItemInput{
-					TableName: aws.String(TableName),
-					Key:       item,
-				})
-			} else {
-				item[ValueKey] = &dynamodb.AttributeValue{
-					B: kv.v,
-				}
-				_, err = d.svc.PutItem(&dynamodb.PutItemInput{
-					TableName: aws.String(TableName),
-					Item:      item,
-				})
+			items = append(items, *kvp)
+			if len(items) == ExecutorBatchSize {
+				d.flushBatch(items)
 			}
-
-			if err != nil {
-				if strings.Index(err.Error(), dynamodb.ErrCodeResourceNotFoundException) > -1 {
-					continue
-				}
-				panic(err)
-			}
-			atomic.AddUint64(&d.batchesWritten, 1)
+			items = nil
 		case <-done:
+			d.flushBatch(items)
 			return
 		}
+	}
+}
+
+func (d *DynamoDatabase) flushBatch(kvs []kv) {
+	if len(kvs) == 0 {
+		return
+	}
+
+	var reqs []*dynamodb.WriteRequest
+	for _, kv := range kvs {
+		k := kv.k
+		v := kv.v
+		del := kv.del
+		req := &dynamodb.WriteRequest{}
+		item := keyAttrs(k)
+
+		if del {
+			req.DeleteRequest = &dynamodb.DeleteRequest{
+				Key: item,
+			}
+		} else {
+			item[ValueKey] = &dynamodb.AttributeValue{
+				B: v,
+			}
+			req.PutRequest = &dynamodb.PutRequest{
+				Item: item,
+			}
+		}
+
+		reqs = append(reqs, req)
+		log.Trace("Preparing batch write.", "kv", hexutil.Encode(k))
+	}
+
+	reqItems := make(map[string][]*dynamodb.WriteRequest)
+	reqItems[TableName] = reqs
+
+	_, err := d.svc.BatchWriteItem(&dynamodb.BatchWriteItemInput{
+		RequestItems: reqItems,
+	})
+
+	if err != nil {
+		panic(err)
 	}
 }
 
