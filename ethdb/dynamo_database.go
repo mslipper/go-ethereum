@@ -141,7 +141,6 @@ func (d *DynamoDatabase) startWriteQueue() {
 		var wg sync.WaitGroup
 		wg.Add(executors)
 		queue := &queue{items: kvs}
-		log.Info("Waiting on batch executors", "count", executors, "kvcount", len(kvs))
 		for i := 0; i < executors; i++ {
 			go d.writeExecutor(&wg, queue)
 		}
@@ -192,11 +191,8 @@ func (d *DynamoDatabase) writeExecutor(wg *sync.WaitGroup, queue *queue) {
 		kvs := queue.PopItems(ExecutorBatchSize)
 
 		if kvs == nil {
-			log.Info("done")
 			return
 		}
-
-		log.Info("Writing values", "count", len(kvs))
 
 		start := time.Now()
 		var reqs []*dynamodb.WriteRequest
