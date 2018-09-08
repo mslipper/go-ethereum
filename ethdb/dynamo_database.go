@@ -21,9 +21,9 @@ const (
 	StoreKey          = "StoreKey"
 	ValueKey          = "Data"
 	ExecutorBatchSize = 25
-	MaxExecutors      = 25
+	MaxExecutors      = 15
 	MaxTotalWrites    = 10000
-	FlushThreshold    = 20000
+	FlushThreshold    = 1000000
 )
 
 type queue struct {
