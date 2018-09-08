@@ -377,7 +377,7 @@ func (b *DynamoBatch) Reset() {
 func keyAttrs(key []byte) map[string]*dynamodb.AttributeValue {
 	out := make(map[string]*dynamodb.AttributeValue)
 	hash := hashCode(key)
-	cKey := fmt.Sprintf("%s.%d", hexutil.Encode(key), hash)
+	cKey := fmt.Sprintf("%d.%s", hash, hexutil.Encode(key))
 
 	out[StoreKey] = &dynamodb.AttributeValue{
 		S: aws.String(cKey),
