@@ -11,9 +11,9 @@ import (
 	"github.com/pkg/errors"
 	"time"
 	"math"
-		"strings"
+	"strings"
 	"sync/atomic"
-	"fmt"
+		"crypto/sha1"
 )
 
 const (
@@ -175,7 +175,7 @@ func (d *DynamoDatabase) startQueueMonitor() {
 						select {
 						case <-progress.C:
 							newSize := d.writeQueue.Size()
-							log.Info("Flushing to database", "remaining", newSize, "diff", last - newSize)
+							log.Info("Flushing to database", "remaining", newSize, "diff", last-newSize)
 							last = newSize
 						case <-d.idleChan:
 							wg.Done()
@@ -204,15 +204,15 @@ func (d *DynamoDatabase) writeExecutor(ch chan *kv, done chan struct{}) {
 			if kv.del {
 				_, err = d.svc.DeleteItem(&dynamodb.DeleteItemInput{
 					TableName: aws.String(TableName),
-					Key: item,
+					Key:       item,
 				})
 			} else {
-				item[ValueKey] = &dynamodb.AttributeValue {
+				item[ValueKey] = &dynamodb.AttributeValue{
 					B: kv.v,
 				}
 				_, err = d.svc.PutItem(&dynamodb.PutItemInput{
 					TableName: aws.String(TableName),
-					Item: item,
+					Item:      item,
 				})
 			}
 
@@ -376,23 +376,9 @@ func (b *DynamoBatch) Reset() {
 
 func keyAttrs(key []byte) map[string]*dynamodb.AttributeValue {
 	out := make(map[string]*dynamodb.AttributeValue)
-	hash := hashCode(key)
-	cKey := fmt.Sprintf("%d.%s", hash, hexutil.Encode(key))
-
+	hash := hexutil.Encode(sha1.Sum(key)[:])
 	out[StoreKey] = &dynamodb.AttributeValue{
-		S: aws.String(cKey),
+		S: aws.String(hash),
 	}
 	return out
-}
-
-func hashCode(key []byte) uint64 {
-	keyStr := string(key)
-	var hash uint64 = 14695981039346656037
-	for i := 0; i < len(keyStr); i++ {
-		hash ^= uint64(keyStr[i])
-		hash *= 1099511628211
-	}
-
-	hash = (hash % 200) + 1
-	return hash
 }
