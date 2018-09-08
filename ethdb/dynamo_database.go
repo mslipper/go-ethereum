@@ -177,8 +177,8 @@ func NewDynamoDatabase() (Database, error) {
 		empty:      make(chan struct{}),
 	}
 
-	go res.startCacheWatcher()
-	go res.startWriteQueue()
+	//go res.startCacheWatcher()
+	//go res.startWriteQueue()
 
 	return res, nil
 }
@@ -350,7 +350,7 @@ func (d *DynamoDatabase) enqueue(items []kv) {
 		}
 	}
 
-	d.writeQueue.PushItems(items)
+	//d.writeQueue.PushItems(items)
 }
 
 func (d *DynamoDatabase) NewBatch() Batch {
