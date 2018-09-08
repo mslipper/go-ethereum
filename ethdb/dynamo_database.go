@@ -166,7 +166,7 @@ func (d *DynamoDatabase) startQueueMonitor() {
 		select {
 		case <-ticker.C:
 			log.Info("Batch stats", "written", d.batchesWritten, "size", d.writeQueue.Size())
-			diff := uint(d.writeQueue.Size()) - d.batchesWritten
+			diff := d.writeQueue.Size() - int(d.batchesWritten)
 			if diff > FlushThreshold {
 				log.Warn("Waiting for full database flush", "diff", diff)
 				d.flushMtx.Lock()
