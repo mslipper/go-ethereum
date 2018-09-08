@@ -12,6 +12,7 @@ import (
 	"time"
 	"math"
 	"sync/atomic"
+	"strings"
 )
 
 const (
@@ -21,7 +22,7 @@ const (
 	ExecutorBatchSize = 25
 	MaxExecutors      = 100
 	MaxTotalWrites    = 10000
-	FlushThreshold    = 1000000
+	FlushThreshold    = 250000
 )
 
 type queue struct {
@@ -168,11 +169,13 @@ func (d *DynamoDatabase) startQueueMonitor() {
 				wg.Add(1)
 				go func() {
 					progress := time.NewTicker(1 * time.Second)
-
+					newSize := d.writeQueue.Size()
+					last := d.writeQueue.Size()
 					for {
 						select {
 						case <-progress.C:
-							log.Info("Flushing to database", "remaining", d.writeQueue.Size())
+							log.Info("Flushing to database", "remaining", newSize, "diff", last - newSize)
+							last = newSize
 						case <-d.idleChan:
 							wg.Done()
 							return
@@ -213,6 +216,9 @@ func (d *DynamoDatabase) writeExecutor(ch chan *kv, done chan struct{}) {
 			}
 
 			if err != nil {
+				if strings.Index(err.Error(), dynamodb.ErrCodeResourceNotFoundException) > -1 {
+					continue
+				}
 				panic(err)
 			}
 		case <-done:
