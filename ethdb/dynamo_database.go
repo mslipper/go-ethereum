@@ -20,8 +20,8 @@ const (
 	ValueKey          = "Data"
 	ExecutorBatchSize = 25
 	MaxExecutors      = 8
-	MaxTotalWrites    = 5000
-	FlushThreshold    = 250000
+	MaxTotalWrites    = 1000
+	FlushThreshold    = 1000000
 )
 
 type queue struct {
