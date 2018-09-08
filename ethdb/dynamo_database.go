@@ -168,9 +168,24 @@ func (d *DynamoDatabase) startQueueMonitor() {
 			diff := uint(d.writeQueue.Size())-d.batchesWritten
 			if diff > FlushThreshold {
 				log.Warn("Waiting for full database flush", "diff", diff)
-
 				d.flushMtx.Lock()
-				<-d.idleChan
+
+				var wg sync.WaitGroup
+				wg.Add(1)
+				go func() {
+					progress := time.NewTicker(5 * time.Second)
+
+					for {
+						select {
+						case <-progress.C:
+							log.Info("Flushing to database", "remaining", d.writeQueue.Size())
+						case <-d.idleChan:
+							wg.Done()
+							return
+						}
+					}
+				}()
+				wg.Wait()
 				d.flushMtx.Unlock()
 			}
 		case <-d.idleChan:
