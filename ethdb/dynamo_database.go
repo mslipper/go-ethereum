@@ -45,7 +45,7 @@ func NewDynamoCache() *dynamoCache {
 	}
 
 	go func() {
-		tick := time.NewTicker(5 * time.Second)
+		tick := time.NewTicker(1 * time.Minute)
 
 		for {
 			select {
@@ -147,8 +147,6 @@ func (q *queue) PopItems(n int) []kv {
 }
 
 func (q *queue) Size() int {
-	q.mtx.Lock()
-	defer q.mtx.Unlock()
 	return len(q.items)
 }
 
@@ -179,8 +177,8 @@ func NewDynamoDatabase() (Database, error) {
 		empty:      make(chan struct{}),
 	}
 
-	go res.startWriteQueue()
 	go res.startCacheWatcher()
+	go res.startWriteQueue()
 
 	return res, nil
 }
@@ -252,7 +250,7 @@ func (d *DynamoDatabase) startWriteQueue() {
 }
 
 func (d *DynamoDatabase) startCacheWatcher() {
-	tick := time.NewTicker(1 * time.Second)
+	tick := time.NewTicker(5 * time.Minute)
 
 	for {
 		select {
