@@ -287,45 +287,51 @@ func (d *DynamoDatabase) Put(key []byte, value []byte) error {
 
 func (d *DynamoDatabase) Delete(key []byte) error {
 	log.Trace("Deleting key.", "key", hexutil.Encode(key))
-	input := &dynamodb.DeleteItemInput{
-		Key:       keyAttrs(key),
-		TableName: aws.String(TableName),
-	}
-	_, err := d.svc.DeleteItem(input)
+	//input := &dynamodb.DeleteItemInput{
+	//	Key:       keyAttrs(key),
+	//	TableName: aws.String(TableName),
+	//}
+	//_, err := d.svc.DeleteItem(input)
 	d.cache.Delete(key)
-	return err
+	//return err
+	return nil
 }
 
 func (d *DynamoDatabase) Get(key []byte) ([]byte, error) {
 	log.Trace("Getting key.", "key", hexutil.Encode(key))
 	cached := d.cache.Get(key)
-	if cached != nil {
-		return cached, nil
-	}
+	return cached, nil
 
-	input := &dynamodb.GetItemInput{
-		Key:            keyAttrs(key),
-		TableName:      aws.String(TableName),
-		ConsistentRead: aws.Bool(true),
-	}
-
-	res, err := d.svc.GetItem(input)
-	if err != nil {
-		return nil, err
-	}
-
-	if res.Item == nil {
-		return nil, nil
-	}
-
-	val := res.Item[ValueKey].B
-	d.cache.Set(key, val)
-	return val, nil
+	//if cached != nil {
+	//	return cached, nil
+	//}
+	//
+	//log.Info("Cache miss")
+	//input := &dynamodb.GetItemInput{
+	//	Key:            keyAttrs(key),
+	//	TableName:      aws.String(TableName),
+	//	ConsistentRead: aws.Bool(true),
+	//}
+	//
+	//res, err := d.svc.GetItem(input)
+	//if err != nil {
+	//	return nil, err
+	//}
+	//
+	//if res.Item == nil {
+	//	return nil, nil
+	//}
+	//
+	//val := res.Item[ValueKey].B
+	//d.cache.Set(key, val)
+	//return val, nil
 }
 
 func (d *DynamoDatabase) Has(key []byte) (bool, error) {
 	d.putMtx.Lock()
 	defer d.putMtx.Unlock()
+
+	log.Info("Checking has")
 
 	res, err := d.Get(key)
 	if err != nil {
