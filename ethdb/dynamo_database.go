@@ -154,6 +154,7 @@ type DynamoDatabase struct {
 	svc        *dynamodb.DynamoDB
 	writeQueue *queue
 	cache      *dynamoCache
+	keySet     *KeySet
 	flushing   bool
 	putMtx     sync.Mutex
 	empty      chan struct{}
@@ -175,10 +176,11 @@ func NewDynamoDatabase() (Database, error) {
 		cache:      NewDynamoCache(),
 		writeQueue: &queue{},
 		empty:      make(chan struct{}),
+		keySet:     NewKeySet(),
 	}
 
-	//go res.startCacheWatcher()
-	//go res.startWriteQueue()
+	go res.startCacheWatcher()
+	go res.startWriteQueue()
 
 	return res, nil
 }
@@ -287,14 +289,13 @@ func (d *DynamoDatabase) Put(key []byte, value []byte) error {
 
 func (d *DynamoDatabase) Delete(key []byte) error {
 	log.Trace("Deleting key.", "key", hexutil.Encode(key))
-	//input := &dynamodb.DeleteItemInput{
-	//	Key:       keyAttrs(key),
-	//	TableName: aws.String(TableName),
-	//}
-	//_, err := d.svc.DeleteItem(input)
+	input := &dynamodb.DeleteItemInput{
+		Key:       keyAttrs(key),
+		TableName: aws.String(TableName),
+	}
+	_, err := d.svc.DeleteItem(input)
 	d.cache.Delete(key)
-	//return err
-	return nil
+	return err
 }
 
 func (d *DynamoDatabase) Get(key []byte) ([]byte, error) {
@@ -302,40 +303,32 @@ func (d *DynamoDatabase) Get(key []byte) ([]byte, error) {
 	cached := d.cache.Get(key)
 	return cached, nil
 
-	//if cached != nil {
-	//	return cached, nil
-	//}
-	//
-	//log.Info("Cache miss")
-	//input := &dynamodb.GetItemInput{
-	//	Key:            keyAttrs(key),
-	//	TableName:      aws.String(TableName),
-	//	ConsistentRead: aws.Bool(true),
-	//}
-	//
-	//res, err := d.svc.GetItem(input)
-	//if err != nil {
-	//	return nil, err
-	//}
-	//
-	//if res.Item == nil {
-	//	return nil, nil
-	//}
-	//
-	//val := res.Item[ValueKey].B
-	//d.cache.Set(key, val)
-	//return val, nil
+	if cached != nil {
+		return cached, nil
+	}
+
+	input := &dynamodb.GetItemInput{
+		Key:            keyAttrs(key),
+		TableName:      aws.String(TableName),
+		ConsistentRead: aws.Bool(true),
+	}
+
+	res, err := d.svc.GetItem(input)
+	if err != nil {
+		return nil, err
+	}
+
+	if res.Item == nil {
+		return nil, nil
+	}
+
+	val := res.Item[ValueKey].B
+	d.cache.Set(key, val)
+	return val, nil
 }
 
 func (d *DynamoDatabase) Has(key []byte) (bool, error) {
-	d.putMtx.Lock()
-	defer d.putMtx.Unlock()
-	res, err := d.Get(key)
-	if err != nil {
-		return false, err
-	}
-
-	return res != nil, nil
+	return d.keySet.Has(key), nil
 }
 
 func (d *DynamoDatabase) Close() {
@@ -348,12 +341,14 @@ func (d *DynamoDatabase) enqueue(items []kv) {
 	for _, item := range items {
 		if item.del {
 			d.cache.Delete(item.k)
+			d.keySet.Remove(item.k)
 		} else {
 			d.cache.Set(item.k, item.v)
+			d.keySet.Add(item.k)
 		}
 	}
 
-	//d.writeQueue.PushItems(items)
+	d.writeQueue.PushItems(items)
 }
 
 func (d *DynamoDatabase) NewBatch() Batch {
