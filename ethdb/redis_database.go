@@ -164,7 +164,7 @@ func shaKey(key []byte) string {
 
 func compress(value []byte) ([]byte, error) {
 	var b bytes.Buffer
-	comp := zlib.NewWriter(&b)
+	comp, _ := zlib.NewWriterLevel(&b, zlib.BestSpeed)
 	if _, err := comp.Write(value); err != nil {
 		return nil, err
 	}
