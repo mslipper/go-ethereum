@@ -43,7 +43,7 @@ func (ctx *ServiceContext) OpenDatabase(name string, cache int, handles int) (et
 	if ctx.config.DataDir == "" {
 		return ethdb.NewMemDatabase(), nil
 	}
-	db, err := ethdb.NewDynamoDatabase()
+	db, err := ethdb.NewRedisDatabase()
 	if err != nil {
 		return nil, err
 	}
