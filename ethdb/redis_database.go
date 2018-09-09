@@ -8,8 +8,7 @@ import (
 	"github.com/pkg/errors"
 	"crypto/sha1"
 	"github.com/go-redis/redis"
-	"github.com/golang/snappy"
-)
+	)
 
 type RedisDatabase struct {
 	rClient    *redis.Client
@@ -161,10 +160,11 @@ func shaKey(key []byte) string {
 }
 
 func compress(value []byte) ([]byte, error) {
-	out := snappy.Encode(nil, value)
-	return out, nil
+	//out := snappy.Encode(nil, value)
+	return value, nil
 }
 
 func decompress(value []byte) ([]byte, error) {
-	return snappy.Decode(nil, value)
+	return value, nil
+	//return snappy.Decode(nil, value)
 }
