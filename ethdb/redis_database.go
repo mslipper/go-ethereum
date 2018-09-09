@@ -20,7 +20,7 @@ type RedisDatabase struct {
 
 func NewRedisDatabase() (Database, error) {
 	client := redis.NewClient(&redis.Options{
-		Addr: "/tmp/redis.sock",
+		Addr: "localhost:6379",
 	})
 	_, err := client.Ping().Result()
 	if err != nil {
