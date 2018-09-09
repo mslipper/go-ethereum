@@ -8,6 +8,9 @@ import (
 	"github.com/pkg/errors"
 	"crypto/sha1"
 	"github.com/go-redis/redis"
+	"bytes"
+	"compress/gzip"
+	"io"
 )
 
 type RedisDatabase struct {
@@ -39,7 +42,11 @@ func NewRedisDatabase() (Database, error) {
 func (d *RedisDatabase) Put(key []byte, value []byte) error {
 	k := shaKey(key)
 	log.Trace("Writing key", "key", k, "valuelen", len(value))
-	return d.rClient.Set(k, value, 0).Err()
+	compressed, err := compress(value)
+	if err != nil {
+		return err
+	}
+	return d.rClient.Set(k, compressed, 0).Err()
 }
 
 func (d *RedisDatabase) Delete(key []byte) error {
@@ -51,8 +58,11 @@ func (d *RedisDatabase) Delete(key []byte) error {
 func (d *RedisDatabase) Get(key []byte) ([]byte, error) {
 	k := shaKey(key)
 	log.Trace("Getting key", "key", k)
-	res := d.rClient.Get(k)
-	return res.Bytes()
+	res, err := d.rClient.Get(k).Bytes()
+	if err != nil {
+		return nil, err
+	}
+	return decompress(res)
 }
 
 func (d *RedisDatabase) Has(key []byte) (bool, error) {
@@ -129,7 +139,12 @@ func (b *RedisBatch) Write() error {
 		if kv.del {
 			pipe.Del(k)
 		} else {
-			pipe.Set(k, kv.v, 0)
+			compressed, err := compress(kv.v)
+			if err != nil {
+				return err
+			}
+
+			pipe.Set(k, compressed, 0)
 		}
 	}
 
@@ -145,4 +160,32 @@ func (b *RedisBatch) Reset() {
 func shaKey(key []byte) string {
 	sha := sha1.Sum(key)
 	return hexutil.Encode(sha[:])
+}
+
+func compress(value []byte) ([]byte, error) {
+	var b bytes.Buffer
+	gz := gzip.NewWriter(&b)
+	if _, err := gz.Write(value); err != nil {
+		return nil, err
+	}
+	if err := gz.Flush(); err != nil {
+		return nil, err
+	}
+	if err := gz.Close(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
+}
+
+func decompress(value []byte) ([]byte, error) {
+	var b bytes.Buffer
+	gz, err := gzip.NewReader(bytes.NewReader(value))
+	if err != nil {
+		return nil, err
+	}
+	io.Copy(&b, gz)
+	if err := gz.Close(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }
