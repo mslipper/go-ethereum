@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+service Node {
+    rpc Put(PutRequest) returns (PutResponse) {}
+    rpc Get(GetRequest) returns (GetResponse) {}
+    rpc Has(HasRequest) returns (HasResponse) {}
+    rpc Delete(DeleteRequest) returns (DeleteResponse) {}
+}
+
+message PutRequest {
+    bytes key = 1;
+    bytes value = 2;
+}
+
+message PutResponse {
+}
+
+message GetRequest {
+    bytes key = 1;
+}
+
+message GetResponse {
+    bytes value = 2;
+}
+
+message HasRequest {
+    bytes key = 1;
+}
+
+message HasResponse {
+    bool value = 1;
+}
+
+message DeleteRequest {
+    bytes key = 1;
+}
+
+message DeleteResponse {}
