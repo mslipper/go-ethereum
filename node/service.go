@@ -43,7 +43,7 @@ func (ctx *ServiceContext) OpenDatabase(name string, cache int, handles int) (et
 	if ctx.config.DataDir == "" {
 		return ethdb.NewMemDatabase(), nil
 	}
-	db, err := ethdb.NewLevelSRVDatabase("localhost:5900")
+	db, err := ethdb.NewLevelSRVDatabase("unix:///tmp/levelsrv.sock")
 	if err != nil {
 		return nil, err
 	}
