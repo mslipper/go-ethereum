@@ -24,7 +24,7 @@ func NewLevelDBStore(path string) (Store, error) {
 	return &LevelDBStore{
 		db:  db,
 		log: logger,
-		stats: NewStats(),
+		stats: NewStats("leveldb"),
 	}, nil
 }
 

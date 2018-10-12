@@ -1,10 +1,16 @@
 syntax = "proto3";
 
 service Node {
-    rpc Put(PutRequest) returns (PutResponse) {}
-    rpc Get(GetRequest) returns (GetResponse) {}
-    rpc Has(HasRequest) returns (HasResponse) {}
-    rpc Delete(DeleteRequest) returns (DeleteResponse) {}
+    rpc Put (PutRequest) returns (PutResponse) {
+    }
+    rpc Get (GetRequest) returns (GetResponse) {
+    }
+    rpc Has (HasRequest) returns (HasResponse) {
+    }
+    rpc Delete (DeleteRequest) returns (DeleteResponse) {
+    }
+    rpc Batch (stream BatchRequest) returns (BatchResponse) {
+    }
 }
 
 message PutRequest {
@@ -35,4 +41,14 @@ message DeleteRequest {
     bytes key = 1;
 }
 
-message DeleteResponse {}
+message DeleteResponse {
+}
+
+message BatchRequest {
+    bytes key = 1;
+    bytes value = 2;
+    bool isDelete = 3;
+}
+
+message BatchResponse {
+}

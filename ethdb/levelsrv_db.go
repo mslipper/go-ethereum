@@ -3,6 +3,7 @@ package ethdb
 import (
 	"github.com/kyokan/levelsrv/pkg/levelsrv"
 	"context"
+	"github.com/kyokan/levelsrv/pkg/storage"
 )
 
 type LevelSRVDatabase struct {
@@ -45,32 +46,24 @@ func (l *LevelSRVDatabase) Close() {
 func (l *LevelSRVDatabase) NewBatch() Batch {
 	return &lsrvBatch{
 		client: l.client,
-		items:  make([]kv, 0),
+		lBatch: l.client.NewBatch(),
 	}
 }
 
 type lsrvBatch struct {
 	client *levelsrv.Client
+	lBatch storage.Batch
 	size int
-	items  []kv
 }
 
 func (l *lsrvBatch) Put(key []byte, value []byte) error {
-	l.items = append(l.items, kv{
-		k: key,
-		v: value,
-	})
 	l.size += len(value)
-	return nil
+	return l.lBatch.Put(key, value)
 }
 
 func (l *lsrvBatch) Delete(key []byte) error {
-	l.items = append(l.items, kv{
-		k:   key,
-		del: true,
-	})
 	l.size++
-	return nil
+	return l.lBatch.Delete(key)
 }
 
 func (l *lsrvBatch) ValueSize() int {
@@ -78,24 +71,10 @@ func (l *lsrvBatch) ValueSize() int {
 }
 
 func (l *lsrvBatch) Write() error {
-	for _, entry := range l.items {
-		var err error
-
-		if entry.del {
-			err = l.client.Delete(entry.k)
-		} else {
-			err = l.client.Put(entry.k, entry.v)
-		}
-
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return l.lBatch.Write()
 }
 
 func (l *lsrvBatch) Reset() {
 	l.size = 0
-	l.items = make([]kv, 0)
+	l.lBatch = l.client.NewBatch()
 }

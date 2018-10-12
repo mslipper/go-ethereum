@@ -7,8 +7,7 @@ import (
 	"github.com/kyokan/levelsrv/pkg"
 	"io/ioutil"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
-	"fmt"
+		"fmt"
 		"time"
 	"github.com/kyokan/levelsrv/pkg/levelsrv"
 )
@@ -16,7 +15,7 @@ import (
 func TestE2E(t *testing.T) {
 	port := 50000
 	ctx, cancel := context.WithCancel(context.Background())
-	dbPath, err := ioutil.TempDir("", "levelsrc")
+	dbPath, err := ioutil.TempDir("", "levelsrv")
 	require.NoError(t, err)
 	err = server.Start(ctx, &pkg.Config{
 		Port:   port,
@@ -24,8 +23,6 @@ func TestE2E(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	conn, err := grpc.Dial(fmt.Sprintf("localhost:%d", port), grpc.WithInsecure())
-	require.NoError(t, err)
 	client, err := levelsrv.NewClient(ctx, fmt.Sprintf("localhost:%d", port))
 	require.NoError(t, err)
 
@@ -57,8 +54,7 @@ func TestE2E(t *testing.T) {
 
 	// test post-restart
 	cancel()
-	conn.Close()
-	time.Sleep(1 * time.Second)
+	time.Sleep(3 * time.Second)
 	port++
 	ctx, cancel = context.WithCancel(context.Background())
 	err = server.Start(ctx, &pkg.Config{
@@ -71,5 +67,20 @@ func TestE2E(t *testing.T) {
 	val, err = client.Get([]byte("test2"))
 	require.NoError(t, err)
 	require.Equal(t, string(val), "value2")
+
+
+	// test batches
+	batch := client.NewBatch()
+	batch.Put([]byte("test3"), []byte("honk"))
+	batch.Delete([]byte("test2"))
+	err = batch.Write()
+	require.NoError(t, err)
+	val, err = client.Get([]byte("test3"))
+	require.NoError(t, err)
+	require.Equal(t, string(val), "honk")
+	has, err = client.Has([]byte("test2"))
+	require.NoError(t, err)
+	require.False(t, has)
+
 	cancel()
 }

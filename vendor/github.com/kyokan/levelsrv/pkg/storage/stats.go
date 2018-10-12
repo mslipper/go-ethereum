@@ -16,9 +16,9 @@ type Stats struct {
 	quitChan     chan bool
 }
 
-func NewStats() *Stats {
+func NewStats(layer string) *Stats {
 	s := &Stats{
-		log:      pkg.NewLogger("stats"),
+		log:      pkg.NewLogger("stats").New("layer", layer),
 		quitChan: make(chan bool),
 	}
 

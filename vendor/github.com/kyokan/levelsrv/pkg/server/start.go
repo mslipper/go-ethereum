@@ -17,11 +17,19 @@ func Start(ctx context.Context, cfg *pkg.Config) error {
 		return err
 	}
 
-	srv := &NodeServer{
-		store: store,
+	wbc, err := storage.NewWriteBehindCache(store)
+	if err != nil {
+		return err
 	}
 
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
+	srv := &NodeServer{
+		store: wbc,
+	}
+	tcpLis, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
+	if err != nil {
+		return err
+	}
+	sockLis, err := net.Listen("unix", "/tmp/levelsrv.sock")
 	if err != nil {
 		return err
 	}
@@ -30,8 +38,15 @@ func Start(ctx context.Context, cfg *pkg.Config) error {
 	node.RegisterNodeServer(gSrv, srv)
 	errCh := make(chan error)
 	go func() {
-		if err := gSrv.Serve(lis); err != nil {
+		if err := gSrv.Serve(tcpLis); err != nil {
 		    errCh <- err
+		}
+
+		return
+	}()
+	go func() {
+		if err := gSrv.Serve(sockLis); err != nil {
+			errCh <- err
 		}
 
 		return
@@ -46,7 +61,7 @@ func Start(ctx context.Context, cfg *pkg.Config) error {
 			case <-ctx.Done():
 				log.Info("shutting down")
 				gSrv.Stop()
-				store.Close()
+				wbc.Close()
 				log.Info("goodbye")
 				return
 			}

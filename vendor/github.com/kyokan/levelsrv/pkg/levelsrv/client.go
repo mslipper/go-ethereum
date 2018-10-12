@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/kyokan/levelsrv/pkg/pb"
 	"google.golang.org/grpc"
+	"github.com/kyokan/levelsrv/pkg/storage"
 )
 
 type Client struct {
@@ -68,4 +69,28 @@ func (c *Client) Has(key []byte) (bool, error) {
 
 func (c *Client) Close() error {
 	return c.conn.Close()
+}
+
+func (c *Client) NewBatch() storage.Batch {
+	return storage.NewMembatch(func(kvs []storage.KV) error {
+		stream, err := c.client.Batch(context.Background())
+		if err != nil {
+			return err
+		}
+
+		for _, item := range kvs {
+			req := &node.BatchRequest{
+				Key:      item.K,
+				Value:    item.V,
+				IsDelete: item.IsDel,
+			}
+
+			if err := stream.Send(req); err != nil {
+				return err
+			}
+		}
+
+		_, err = stream.CloseAndRecv()
+		return err
+	})
 }
