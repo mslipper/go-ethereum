@@ -4,16 +4,20 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	log "github.com/inconshreveable/log15"
 	"github.com/kyokan/levelsrv/pkg"
+	"github.com/syndtr/goleveldb/leveldb/opt"
+	"github.com/syndtr/goleveldb/leveldb/filter"
 )
 
 type LevelDBStore struct {
-	db  *leveldb.DB
-	log log.Logger
+	db    *leveldb.DB
+	log   log.Logger
 	stats *Stats
 }
 
 func NewLevelDBStore(path string) (Store, error) {
-	db, err := leveldb.OpenFile(path, nil)
+	db, err := leveldb.OpenFile(path, &opt.Options{
+		Filter: filter.NewBloomFilter(10),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -22,8 +26,8 @@ func NewLevelDBStore(path string) (Store, error) {
 	logger.Info("initialized leveldb store")
 
 	return &LevelDBStore{
-		db:  db,
-		log: logger,
+		db:    db,
+		log:   logger,
 		stats: NewStats("leveldb"),
 	}, nil
 }

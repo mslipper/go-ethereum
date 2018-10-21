@@ -19,11 +19,34 @@ type WriteBehindCache struct {
 	log           log15.Logger
 	deletionSigil []byte
 	backendBatch  Batch
+	flushCapacity int
+	forceTick     <-chan time.Time
+	checkTick     <-chan time.Time
 }
 
-const FlushCacheSize = 100 * 1024 * 1024
+const DefaultFlushCapacity = 100 * 1024 * 1024
 
-func NewWriteBehindCache(backend Store) (Store, error) {
+type WBCOption func(c *WriteBehindCache)
+
+func WithFlushCapacity(capacity int) WBCOption {
+	return func(c *WriteBehindCache) {
+		c.flushCapacity = capacity
+	}
+}
+
+func WithForceTick(ch <-chan time.Time) WBCOption {
+	return func(c *WriteBehindCache) {
+		c.forceTick = ch
+	}
+}
+
+func WithCheckTick(ch <-chan time.Time) WBCOption {
+	return func(c *WriteBehindCache) {
+		c.checkTick = ch
+	}
+}
+
+func NewWriteBehindCache(backend Store, options ...WBCOption) (Store, error) {
 	log := pkg.NewLogger("cache")
 
 	c := &WriteBehindCache{
@@ -34,6 +57,23 @@ func NewWriteBehindCache(backend Store) (Store, error) {
 		deletionSigil: pkg.Rand32(),
 		backendBatch:  backend.NewBatch(),
 	}
+
+	for _, opt := range options {
+		opt(c)
+	}
+
+	if c.flushCapacity == 0 {
+		c.flushCapacity = DefaultFlushCapacity
+	}
+	if c.checkTick == nil {
+		checkTick := time.NewTicker(1 * time.Second)
+		c.checkTick = checkTick.C
+	}
+	if c.forceTick == nil {
+		forceTick := time.NewTicker(1 * time.Minute)
+		c.forceTick = forceTick.C
+	}
+
 	go c.manage()
 	return c, nil
 }
@@ -109,8 +149,8 @@ func (c *WriteBehindCache) batchHandler(kvs []*KV) error {
 
 		if kv.IsDel {
 			if has {
-				c.cacheSize -= len(old)
 				c.duplicates++
+				c.cacheSize -= len(old)
 			}
 			c.cache[string(kv.K)] = c.deletionSigil
 		} else {
@@ -128,14 +168,11 @@ func (c *WriteBehindCache) batchHandler(kvs []*KV) error {
 }
 
 func (c *WriteBehindCache) manage() {
-	checkTick := time.NewTicker(1 * time.Second)
-	forceTick := time.NewTicker(1 * time.Minute)
-
 	for {
 		select {
-		case <-checkTick.C:
+		case <-c.checkTick:
 			c.flush(false)
-		case <-forceTick.C:
+		case <-c.forceTick:
 			c.flush(true)
 		case <-c.quitChan:
 			c.flush(true)
@@ -150,12 +187,12 @@ func (c *WriteBehindCache) flush(force bool) {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 	size := c.cacheSize
-	if !force && c.cacheSize < FlushCacheSize {
-		log15.Info("cache size below flush threshold", "size", pkg.PrettySize(size), "threshold", pkg.PrettySize(FlushCacheSize))
+	if !force && c.cacheSize < c.flushCapacity {
+		log15.Info("cache size below flush threshold", "size", pkg.PrettySize(size), "threshold", pkg.PrettySize(c.flushCapacity))
 		return
 	}
 	if force {
-		log15.Info("forcing cache flush", "size", pkg.PrettySize(size), "threshold", pkg.PrettySize(FlushCacheSize))
+		log15.Info("forcing cache flush", "size", pkg.PrettySize(size), "threshold", pkg.PrettySize(c.flushCapacity))
 	}
 
 	cache := c.cache
@@ -178,7 +215,7 @@ func (c *WriteBehindCache) flush(force bool) {
 	batch.Reset()
 	duration := time.Since(start)
 	c.log.Info(
-		"flushed write-behind cache to disk",
+		"flushed write-behind cache to backend",
 		"size",
 		pkg.PrettySize(size),
 		"keys",

@@ -324,26 +324,32 @@
 		{
 			"checksumSHA1": "+nnHLt/0VprKbaaIzTJ4xQTl8ys=",
 			"path": "github.com/kyokan/levelsrv/pkg",
-			"revision": "722ce39625b163777ce8da74eca4fde2e8296a22",
-			"revisionTime": "2018-10-17T06:43:04Z"
+			"revision": "e44c9a1c3e7490b7f02f16d521f76f8b6059b18b",
+			"revisionTime": "2018-10-20T23:48:43Z"
 		},
 		{
 			"checksumSHA1": "s7b3sH62Al4o1/cnsZRxB1ugyb4=",
 			"path": "github.com/kyokan/levelsrv/pkg/levelsrv",
-			"revision": "722ce39625b163777ce8da74eca4fde2e8296a22",
-			"revisionTime": "2018-10-17T06:43:04Z"
+			"revision": "e44c9a1c3e7490b7f02f16d521f76f8b6059b18b",
+			"revisionTime": "2018-10-20T23:48:43Z"
 		},
 		{
-			"checksumSHA1": "KsNlWxDul2SlbgT4SAefwNE5R6E=",
+			"checksumSHA1": "oO4EvWF2Ho/7PSs5sgkv9DQYZxk=",
 			"path": "github.com/kyokan/levelsrv/pkg/pb",
-			"revision": "722ce39625b163777ce8da74eca4fde2e8296a22",
-			"revisionTime": "2018-10-17T06:43:04Z"
+			"revision": "e44c9a1c3e7490b7f02f16d521f76f8b6059b18b",
+			"revisionTime": "2018-10-20T23:48:43Z"
 		},
 		{
-			"checksumSHA1": "GikcweOI5maHgAwkTGQ9ExDOcnQ=",
+			"checksumSHA1": "xB8w7qZWzVZlM7E3dFXuHX+MEE8=",
+			"path": "github.com/kyokan/levelsrv/pkg/server",
+			"revision": "e44c9a1c3e7490b7f02f16d521f76f8b6059b18b",
+			"revisionTime": "2018-10-20T23:48:43Z"
+		},
+		{
+			"checksumSHA1": "lyZv+cswrqCOImt52fP7sW1L7go=",
 			"path": "github.com/kyokan/levelsrv/pkg/storage",
-			"revision": "722ce39625b163777ce8da74eca4fde2e8296a22",
-			"revisionTime": "2018-10-17T06:43:04Z"
+			"revision": "e44c9a1c3e7490b7f02f16d521f76f8b6059b18b",
+			"revisionTime": "2018-10-20T23:48:43Z"
 		},
 		{
 			"checksumSHA1": "7hln62oZPZmyqEmgXaybf9WxQ7A=",
