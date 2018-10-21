@@ -1,23 +1,31 @@
 package ethdb
 
 import (
-	"github.com/kyokan/levelsrv/pkg/levelsrv"
 	"context"
 	"github.com/kyokan/levelsrv/pkg/storage"
+	"github.com/kyokan/levelsrv/pkg/server"
+	"github.com/kyokan/levelsrv/pkg"
+	"time"
 )
 
 type LevelSRVDatabase struct {
-	client *levelsrv.Client
+	client storage.Store
+	cancel context.CancelFunc
 }
 
-func NewLevelSRVDatabase(url string) (*LevelSRVDatabase, error) {
-	client, err := levelsrv.NewClient(context.TODO(), url)
+func NewLevelSRVDatabase(path string) (*LevelSRVDatabase, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	lvlsrv, err := server.Start(ctx, &pkg.Config{
+		DBPath: path,
+		Port:   5900,
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &LevelSRVDatabase{
-		client: client,
+		client: lvlsrv,
+		cancel: cancel,
 	}, nil
 }
 
@@ -38,9 +46,8 @@ func (l *LevelSRVDatabase) Has(key []byte) (bool, error) {
 }
 
 func (l *LevelSRVDatabase) Close() {
-	if err := l.client.Close(); err != nil {
-		panic(err)
-	}
+	l.cancel()
+	time.Sleep(3 * time.Second)
 }
 
 func (l *LevelSRVDatabase) NewBatch() Batch {
@@ -51,9 +58,9 @@ func (l *LevelSRVDatabase) NewBatch() Batch {
 }
 
 type lsrvBatch struct {
-	client *levelsrv.Client
+	client storage.Store
 	lBatch storage.Batch
-	size int
+	size   int
 }
 
 func (l *lsrvBatch) Put(key []byte, value []byte) error {

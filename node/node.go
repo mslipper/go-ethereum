@@ -570,7 +570,7 @@ func (n *Node) OpenDatabase(name string, cache, handles int) (ethdb.Database, er
 	if n.config.DataDir == "" {
 		return ethdb.NewMemDatabase(), nil
 	}
-	return ethdb.NewLevelSRVDatabase("unix:///tmp/levelsrv.sock")
+	return ethdb.NewLevelSRVDatabase(n.config.ResolvePath(name))
 }
 
 // ResolvePath returns the absolute path of a resource in the instance directory.
