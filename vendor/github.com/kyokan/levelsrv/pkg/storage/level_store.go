@@ -14,9 +14,13 @@ type LevelDBStore struct {
 	stats *Stats
 }
 
+const LevelCacheSize = 256 * opt.MiB
+
 func NewLevelDBStore(path string) (Store, error) {
 	db, err := leveldb.OpenFile(path, &opt.Options{
-		Filter: filter.NewBloomFilter(10),
+		Filter:             filter.NewBloomFilter(10),
+		BlockCacheCapacity: LevelCacheSize,
+		WriteBuffer:        LevelCacheSize,
 	})
 	if err != nil {
 		return nil, err

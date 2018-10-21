@@ -346,10 +346,10 @@
 			"revisionTime": "2018-10-20T23:48:43Z"
 		},
 		{
-			"checksumSHA1": "lyZv+cswrqCOImt52fP7sW1L7go=",
+			"checksumSHA1": "+NAzS4SyGqJ0Ke4Fs430PWhA+pA=",
 			"path": "github.com/kyokan/levelsrv/pkg/storage",
-			"revision": "e44c9a1c3e7490b7f02f16d521f76f8b6059b18b",
-			"revisionTime": "2018-10-20T23:48:43Z"
+			"revision": "27de51f8c23a510d8cc4c9a69dcdb4ce64f7dd79",
+			"revisionTime": "2018-10-21T07:09:26Z"
 		},
 		{
 			"checksumSHA1": "7hln62oZPZmyqEmgXaybf9WxQ7A=",
