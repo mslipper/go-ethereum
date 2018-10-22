@@ -67,7 +67,7 @@ var (
 	fsHeaderSafetyNet      = 2048            // Number of headers to discard in case a chain violation is detected
 	fsHeaderForceVerify    = 24              // Number of headers to verify before and after the pivot to accept it
 	fsHeaderContCheck      = 3 * time.Second // Time interval to check for header continuations during state download
-	fsMinFullBlocks        = 16              // Number of blocks to retrieve fully even in fast sync
+	fsMinFullBlocks        = 64              // Number of blocks to retrieve fully even in fast sync
 )
 
 var (
@@ -447,7 +447,7 @@ func (d *Downloader) syncWithPeer(p *peerConnection, hash common.Hash, td *big.I
 		if height <= uint64(fsMinFullBlocks) {
 			origin = 0
 		} else {
-			pivot = height - (uint64(fsMinFullBlocks) / 2)
+			pivot = height - uint64(fsMinFullBlocks)
 			if pivot <= origin {
 				origin = pivot - 1
 			}
@@ -1422,7 +1422,7 @@ func (d *Downloader) processFastSyncContent(latest *types.Header) error {
 	// sync takes long enough for the chain head to move significantly.
 	pivot := uint64(0)
 	if height := latest.Number.Uint64(); height > uint64(fsMinFullBlocks) {
-		pivot = height - (uint64(fsMinFullBlocks) / 2)
+		pivot = height - uint64(fsMinFullBlocks)
 	}
 	// To cater for moving pivot points, track the pivot block and subsequently
 	// accumulated download results separately.
@@ -1457,7 +1457,7 @@ func (d *Downloader) processFastSyncContent(latest *types.Header) error {
 			latest = results[len(results)-1].Header
 			if height := latest.Number.Uint64(); height > pivot+8*uint64(fsMinFullBlocks) {
 				log.Warn("Pivot became stale, moving", "old", pivot, "new", height-uint64(fsMinFullBlocks))
-				pivot = height - (uint64(fsMinFullBlocks) / 2)
+				pivot = height - uint64(fsMinFullBlocks)
 			}
 		}
 		P, beforeP, afterP := splitAroundPivot(pivot, results)
