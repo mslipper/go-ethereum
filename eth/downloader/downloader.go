@@ -1422,7 +1422,7 @@ func (d *Downloader) processFastSyncContent(latest *types.Header) error {
 	// sync takes long enough for the chain head to move significantly.
 	pivot := uint64(0)
 	if height := latest.Number.Uint64(); height > uint64(fsMinFullBlocks) {
-		pivot = height - uint64(fsMinFullBlocks)
+		pivot = height - (uint64(fsMinFullBlocks) / 2)
 	}
 	// To cater for moving pivot points, track the pivot block and subsequently
 	// accumulated download results separately.
