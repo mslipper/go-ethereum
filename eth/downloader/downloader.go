@@ -447,7 +447,7 @@ func (d *Downloader) syncWithPeer(p *peerConnection, hash common.Hash, td *big.I
 		if height <= uint64(fsMinFullBlocks) {
 			origin = 0
 		} else {
-			pivot = height - uint64(fsMinFullBlocks)
+			pivot = height - uint64(fsMinFullBlocks) + 1
 			if pivot <= origin {
 				origin = pivot - 1
 			}
