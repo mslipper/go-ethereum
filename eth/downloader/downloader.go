@@ -1455,9 +1455,9 @@ func (d *Downloader) processFastSyncContent(latest *types.Header) error {
 		// Split around the pivot block and process the two sides via fast/full sync
 		if atomic.LoadInt32(&d.committed) == 0 {
 			latest = results[len(results)-1].Header
-			if height := latest.Number.Uint64(); height > pivot+2*uint64(fsMinFullBlocks) {
+			if height := latest.Number.Uint64(); height > pivot+8*uint64(fsMinFullBlocks) {
 				log.Warn("Pivot became stale, moving", "old", pivot, "new", height-uint64(fsMinFullBlocks))
-				pivot = height - uint64(fsMinFullBlocks)
+				pivot = height - (uint64(fsMinFullBlocks) / 2)
 			}
 		}
 		P, beforeP, afterP := splitAroundPivot(pivot, results)
