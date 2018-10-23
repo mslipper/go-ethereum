@@ -1,10 +1,13 @@
 package storage
 
+import "sync"
+
 type BatchWriter = func([]*KV) error
 
 type Membatch struct {
 	items  []*KV
 	writer BatchWriter
+	mtx sync.Mutex
 }
 
 type KV struct {
@@ -24,6 +27,8 @@ func NewMembatch(writer BatchWriter) *Membatch {
 }
 
 func (m *Membatch) Put(key []byte, value []byte) error {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
 	m.items = append(m.items, &KV{
 		K: key,
 		V: value,
@@ -32,6 +37,8 @@ func (m *Membatch) Put(key []byte, value []byte) error {
 }
 
 func (m *Membatch) Delete(key []byte) error {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
 	m.items = append(m.items, &KV{
 		K:     key,
 		IsDel: true,
@@ -40,9 +47,13 @@ func (m *Membatch) Delete(key []byte) error {
 }
 
 func (m *Membatch) Write() error {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
 	return m.writer(m.items)
 }
 
 func (m *Membatch) Reset() {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
 	m.items = make([]*KV, 0)
 }

@@ -197,10 +197,8 @@ func (c *WriteBehindCache) flush(force bool) {
 
 	cache := c.cache
 	dups := c.duplicates
-	c.cache = make(map[string][]byte)
-	c.cacheSize = 0
-	c.duplicates = 0
 	batch := c.backendBatch
+	defer batch.Reset()
 	for k, v := range cache {
 		if bytes.Equal(v, c.deletionSigil) {
 			batch.Delete([]byte(k))
@@ -212,7 +210,9 @@ func (c *WriteBehindCache) flush(force bool) {
 		c.log.Error("failed to flush write behind cache", "err", err)
 		return
 	}
-	batch.Reset()
+	c.cache = make(map[string][]byte)
+	c.cacheSize = 0
+	c.duplicates = 0
 	duration := time.Since(start)
 	c.log.Info(
 		"flushed write-behind cache to backend",
